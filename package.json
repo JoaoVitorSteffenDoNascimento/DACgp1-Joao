@@ -10,13 +10,13 @@
     "seed": "node backend/seed.cjs",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "npm run test:node && npm run test:ui",
-    "test:node": "node --test",
-    "test:ui": "vitest run",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
@@ -29,6 +29,7 @@
     "@eslint/js": "^9.39.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -38,6 +39,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
+    "supertest": "^7.2.2",
     "vite": "^8.0.1",
     "vitest": "^4.1.0"
   }

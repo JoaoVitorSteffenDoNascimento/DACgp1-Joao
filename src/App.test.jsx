@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HashRouter } from 'react-router-dom';
@@ -122,5 +123,64 @@ describe('App', () => {
 
     expect(screen.getByText('25%')).toBeTruthy();
     expect(screen.getByText('Próximos passos')).toBeTruthy();
+  });
+
+  it('permite salvar apenas a troca de tema nas configurações', async () => {
+    const profilePayloads = [];
+    window.localStorage.setItem('coursemapper_token', 'token-demo');
+
+    const fetchMock = vi.fn((url, options = {}) => {
+      const normalizedUrl = String(url);
+
+      if (normalizedUrl.endsWith('/curriculums')) {
+        return jsonResponse(curriculumsResponse);
+      }
+
+      if (normalizedUrl.endsWith('/auth/me')) {
+        return jsonResponse({ user: loginUser });
+      }
+
+      if (normalizedUrl.includes('/map?courseId=cc')) {
+        return jsonResponse(mapResponse);
+      }
+
+      if (normalizedUrl.endsWith('/profile')) {
+        profilePayloads.push(JSON.parse(options.body));
+        return jsonResponse({
+          user: {
+            ...loginUser,
+            preferences: { theme: 'dark' },
+          },
+        });
+      }
+
+      throw new Error(`Rota inesperada no teste: ${normalizedUrl}`);
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText('Bom ver você por aqui, Lucas.')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Configurações$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dark' }));
+    fireEvent.click(screen.getByRole('button', { name: /Salvar configura/i }));
+
+    await waitFor(() => {
+      expect(profilePayloads).toEqual([
+        {
+          name: 'Lucas Demo',
+          username: 'lucas',
+          email: 'lucas@coursemapper.local',
+          avatarUrl: '',
+          theme: 'dark',
+        },
+      ]);
+    });
+
+    expect(await screen.findByText(/salvas com sucesso/i)).toBeTruthy();
   });
 });

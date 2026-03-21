@@ -47,6 +47,8 @@ API local:
 - `npm run backend`: sobe apenas o backend Express com watch
 - `npm run dev:all`: sobe frontend e backend juntos
 - `npm run seed`: cria um usuario demo local
+- `npm test`: executa os testes unitarios com Vitest
+- `npm run test:watch`: executa os testes em modo observacao
 - `npm run build`: gera build de producao
 - `npm run lint`: valida o frontend com ESLint
 
@@ -165,7 +167,15 @@ Se o Pages ainda nao estiver ativo no repositorio, basta habilitar:
 Depois de rodar `npm run seed`, voce pode entrar com:
 
 - matricula: `2026000001`
-- senha: `1234`
+- senha: `Demo@2026`
+
+## Regras de seguranca
+
+- o cadastro exige senha com no minimo 8 caracteres
+- a senha deve ter letra maiuscula, letra minuscula, numero e caractere especial
+- a senha nao pode conter espacos
+- o backend protege a senha com hash baseado em `scrypt`
+- o e-mail precisa ter formato valido e dominio resolvivel
 
 ## Camada de persistencia
 

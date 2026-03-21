@@ -4,27 +4,45 @@ const path = require('path');
 class FileUserRepository {
   constructor(usersFile) {
     this.usersFile = usersFile;
+    this.usersCache = null;
+    this.initPromise = null;
+    this.writePromise = Promise.resolve();
   }
 
   async init() {
-    await fs.mkdir(path.dirname(this.usersFile), { recursive: true });
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        await fs.mkdir(path.dirname(this.usersFile), { recursive: true });
 
-    try {
-      await fs.access(this.usersFile);
-    } catch {
-      await fs.writeFile(this.usersFile, '[]', 'utf8');
+        try {
+          await fs.access(this.usersFile);
+        } catch {
+          await fs.writeFile(this.usersFile, '[]', 'utf8');
+        }
+      })();
     }
+
+    await this.initPromise;
   }
 
   async readUsers() {
+    if (this.usersCache) {
+      return this.usersCache;
+    }
+
     await this.init();
     const raw = await fs.readFile(this.usersFile, 'utf8');
-    return JSON.parse(raw);
+    this.usersCache = JSON.parse(raw);
+    return this.usersCache;
   }
 
   async writeUsers(users) {
     await this.init();
-    await fs.writeFile(this.usersFile, JSON.stringify(users, null, 2), 'utf8');
+    this.usersCache = users;
+    this.writePromise = this.writePromise.then(() => (
+      fs.writeFile(this.usersFile, JSON.stringify(users, null, 2), 'utf8')
+    ));
+    await this.writePromise;
   }
 
   async findByToken(token) {

@@ -1,7 +1,10 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+dotenv.config({
+  path: path.resolve(__dirname, '..', '.env'),
+  quiet: process.env.NODE_ENV === 'test',
+});
 
 module.exports = {
   port: Number(process.env.PORT || 3001),

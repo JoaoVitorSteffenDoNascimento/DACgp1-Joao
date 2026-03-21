@@ -1,24 +1,27 @@
-const crypto = require('crypto');
-
 const curriculums = require('./data/curriculums.cjs');
 const { createUserRepository } = require('./repositories/index.cjs');
+const crypto = require('crypto');
+const { hashPassword } = require('./security.cjs');
 
 const userRepository = createUserRepository();
-
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const derivedKey = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${derivedKey}`;
-}
 
 async function run() {
   await userRepository.init();
 
   const registration = '2026000001';
   const email = 'lucas@coursemapp.local';
+  const demoPassword = 'Demo@2026';
   const existingUser = await userRepository.findByRegistration(registration);
 
   if (existingUser) {
-    console.log('Usuario demo ja existe.');
+    await userRepository.updateById(existingUser.id, {
+      ...existingUser,
+      email,
+      passwordHash: hashPassword(demoPassword),
+    });
+    console.log('Usuario demo atualizado com senha forte.');
+    console.log('Matricula: 2026000001');
+    console.log(`Senha: ${demoPassword}`);
     return;
   }
 
@@ -30,7 +33,7 @@ async function run() {
     email,
     courseId: 'cc',
     avatarUrl: '',
-    passwordHash: hashPassword('1234'),
+    passwordHash: hashPassword(demoPassword),
     sessionToken: '',
     preferences: {
       theme: 'brand',
@@ -43,7 +46,7 @@ async function run() {
 
   console.log('Usuario demo criado com sucesso.');
   console.log('Matricula: 2026000001');
-  console.log('Senha: 1234');
+  console.log(`Senha: ${demoPassword}`);
   console.log(`Cursos disponiveis: ${Object.keys(curriculums).join(', ')}`);
 }
 

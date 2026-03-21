@@ -528,7 +528,8 @@ export default function App() {
   const [dashboardError, setDashboardError] = useState('');
   const [settingsError, setSettingsError] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
-  const hasSettingsChanges = JSON.stringify(normalizeSettingsForCompare(settingsForm)) !== JSON.stringify(normalizeSettingsForCompare(getSettingsForm(user, theme)));
+  const persistedTheme = user?.preferences?.theme || getStoredTheme();
+  const hasSettingsChanges = JSON.stringify(normalizeSettingsForCompare(settingsForm)) !== JSON.stringify(normalizeSettingsForCompare(getSettingsForm(user, persistedTheme)));
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -607,7 +608,12 @@ export default function App() {
       const path = authMode === 'login' ? '/auth/login' : '/auth/register';
       const payload = authMode === 'login'
         ? { registration: normalizeRegistration(form.registration), password: form.password }
-        : { ...form, registration: normalizeRegistration(form.registration), email: form.email.trim(), name: form.name.trim() };
+        : {
+            ...form,
+            registration: normalizeRegistration(form.registration),
+            email: form.email.trim().toLowerCase(),
+            name: form.name.trim(),
+          };
       const response = await apiRequest(path, { method: 'POST', body: JSON.stringify(payload) });
 
       const nextTheme = response.user.preferences?.theme || 'brand';
@@ -682,7 +688,7 @@ export default function App() {
         body: JSON.stringify({
           name: settingsForm.name.trim(),
           username: settingsForm.username.trim(),
-          email: settingsForm.email.trim(),
+          email: settingsForm.email.trim().toLowerCase(),
           avatarUrl: settingsForm.avatarUrl.trim(),
           theme: settingsForm.theme,
         }),
