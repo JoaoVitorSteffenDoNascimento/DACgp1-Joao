@@ -4,8 +4,10 @@ const crypto = require('crypto');
 const compression = require('compression');
 
 const defaultConfig = require('./config.cjs');
-const curriculums = require('./data/curriculums.cjs');
 const { createUserRepository } = require('./repositories/index.cjs');
+const { createCurriculumCatalog } = require('./services/curriculumCatalog.cjs');
+const { buildMapPayload: buildMapPayloadFromCatalog } = require('./services/mapService.cjs');
+const { toggleSubjectProgress } = require('./services/progressService.cjs');
 const {
   getPasswordSecurityMessage,
   hasResolvableEmailDomain,
@@ -15,11 +17,15 @@ const {
   verifyPassword,
 } = require('./security.cjs');
 
-const statusOrder = {
-  completed: 0,
-  available: 1,
-  locked: 2,
-};
+const curriculumCatalog = createCurriculumCatalog();
+
+function buildMapPayload(user, selectedCourseId) {
+  return buildMapPayloadFromCatalog(user, selectedCourseId, curriculumCatalog);
+}
+
+function buildCurriculumSummary() {
+  return curriculumCatalog.getSummaryList();
+}
 
 function sanitizeUser(user) {
   const fallbackUsername = String(user.name || '')
@@ -51,193 +57,6 @@ function getTokenFromRequest(req) {
   return authorization.slice(7);
 }
 
-function buildCurriculumSummary() {
-  return Object.values(curriculums).map((curriculum) => ({
-    id: curriculum.id,
-    code: curriculum.code,
-    name: curriculum.name,
-    trailLabels: curriculum.trailLabels,
-    totalSubjects: curriculum.subjects.length,
-  }));
-}
-
-function buildChildrenMap(subjects) {
-  const childrenMap = new Map();
-
-  subjects.forEach((subject) => {
-    childrenMap.set(subject.id, []);
-  });
-
-  subjects.forEach((subject) => {
-    subject.prerequisites.forEach((prerequisiteId) => {
-      if (childrenMap.has(prerequisiteId)) {
-        childrenMap.get(prerequisiteId).push(subject.id);
-      }
-    });
-  });
-
-  return childrenMap;
-}
-
-function collectDependentSubjects(subjectId, childrenMap, visited = new Set()) {
-  const directChildren = childrenMap.get(subjectId) || [];
-
-  directChildren.forEach((childId) => {
-    if (!visited.has(childId)) {
-      visited.add(childId);
-      collectDependentSubjects(childId, childrenMap, visited);
-    }
-  });
-
-  return visited;
-}
-
-function createDepthCalculator(subjectMap, childrenMap) {
-  const memo = new Map();
-
-  function getDepth(subjectId) {
-    if (memo.has(subjectId)) {
-      return memo.get(subjectId);
-    }
-
-    const children = childrenMap.get(subjectId) || [];
-
-    if (children.length === 0) {
-      memo.set(subjectId, 1);
-      return 1;
-    }
-
-    const depth = 1 + Math.max(...children.map((childId) => getDepth(childId)));
-    memo.set(subjectId, depth);
-    return depth;
-  }
-
-  subjectMap.forEach((_, subjectId) => {
-    getDepth(subjectId);
-  });
-
-  return memo;
-}
-
-function getCriticalPath(subjects) {
-  const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
-  const childrenMap = buildChildrenMap(subjects);
-  const depthMap = createDepthCalculator(subjectMap, childrenMap);
-  const roots = subjects.filter((subject) => subject.prerequisites.length === 0);
-
-  if (roots.length === 0) {
-    return new Set();
-  }
-
-  let current = roots.reduce((best, subject) => (
-    depthMap.get(subject.id) > depthMap.get(best.id) ? subject : best
-  ), roots[0]);
-
-  const criticalIds = new Set();
-
-  while (current) {
-    criticalIds.add(current.id);
-    const nextOptions = (childrenMap.get(current.id) || []).map((childId) => subjectMap.get(childId));
-
-    if (nextOptions.length === 0) {
-      break;
-    }
-
-    current = nextOptions.reduce((best, subject) => (
-      depthMap.get(subject.id) > depthMap.get(best.id) ? subject : best
-    ), nextOptions[0]);
-  }
-
-  return criticalIds;
-}
-
-function countRemainingChain(subjectId, pendingIds, subjectMap, memo = new Map()) {
-  if (memo.has(subjectId)) {
-    return memo.get(subjectId);
-  }
-
-  const subject = subjectMap.get(subjectId);
-  const pendingPrerequisites = subject.prerequisites.filter((prerequisiteId) => pendingIds.has(prerequisiteId));
-
-  if (pendingPrerequisites.length === 0) {
-    memo.set(subjectId, 1);
-    return 1;
-  }
-
-  const depth = 1 + Math.max(...pendingPrerequisites.map((prerequisiteId) => (
-    countRemainingChain(prerequisiteId, pendingIds, subjectMap, memo)
-  )));
-
-  memo.set(subjectId, depth);
-  return depth;
-}
-
-function buildMapPayload(user, selectedCourseId) {
-  const courseId = selectedCourseId && curriculums[selectedCourseId]
-    ? selectedCourseId
-    : user.courseId;
-  const curriculum = curriculums[courseId];
-  const completedIds = new Set(user.progress?.[courseId] || []);
-  const subjectMap = new Map(curriculum.subjects.map((subject) => [subject.id, subject]));
-  const criticalPath = getCriticalPath(curriculum.subjects);
-
-  const subjects = curriculum.subjects
-    .map((subject) => {
-      const allPrerequisitesDone = subject.prerequisites.every((prerequisiteId) => completedIds.has(prerequisiteId));
-      const status = completedIds.has(subject.id)
-        ? 'completed'
-        : allPrerequisitesDone
-          ? 'available'
-          : 'locked';
-
-      return {
-        ...subject,
-        status,
-        isCritical: criticalPath.has(subject.id),
-      };
-    })
-    .sort((first, second) => {
-      if (first.semester !== second.semester) {
-        return first.semester - second.semester;
-      }
-
-      if (statusOrder[first.status] !== statusOrder[second.status]) {
-        return statusOrder[first.status] - statusOrder[second.status];
-      }
-
-      return first.id.localeCompare(second.id);
-    });
-
-  const totalSubjects = subjects.length;
-  const completedCount = subjects.filter((subject) => subject.status === 'completed').length;
-  const availableCount = subjects.filter((subject) => subject.status === 'available').length;
-  const completionRate = totalSubjects === 0 ? 0 : Math.round((completedCount / totalSubjects) * 100);
-  const pendingIds = new Set(subjects.filter((subject) => subject.status !== 'completed').map((subject) => subject.id));
-  const remainingCriticalSemesters = pendingIds.size === 0
-    ? 0
-    : Math.max(...Array.from(pendingIds).map((subjectId) => (
-      countRemainingChain(subjectId, pendingIds, subjectMap)
-    )));
-
-  return {
-    course: {
-      id: curriculum.id,
-      code: curriculum.code,
-      name: curriculum.name,
-      trailLabels: curriculum.trailLabels,
-    },
-    stats: {
-      totalSubjects,
-      completedCount,
-      availableCount,
-      lockedCount: totalSubjects - completedCount - availableCount,
-      completionRate,
-      remainingCriticalSemesters,
-    },
-    subjects,
-  };
-}
-
 function createApp({
   userRepository = createUserRepository(),
   config = defaultConfig,
@@ -246,7 +65,7 @@ function createApp({
   const app = express();
 
   app.use(cors());
-  app.use(compression());
+  app.use(compression({ threshold: '2kb' }));
   app.use(express.json({ limit: '8mb' }));
 
   async function getAuthenticatedUser(req) {
@@ -266,7 +85,7 @@ function createApp({
       return 'Preencha todos os campos.';
     }
 
-    if (!curriculums[courseId]) {
+    if (!curriculumCatalog.getCourse(courseId)) {
       return 'Curso invalido.';
     }
 
@@ -481,49 +300,21 @@ function createApp({
       return res.status(401).json({ error: 'Sessao invalida.' });
     }
 
-    const { courseId, subjectId, completed } = req.body;
-    const selectedCourseId = courseId && curriculums[courseId] ? courseId : user.courseId;
-    const curriculum = curriculums[selectedCourseId];
-    const targetSubject = curriculum.subjects.find((subject) => subject.id === subjectId);
+    const progressResult = toggleSubjectProgress(user, req.body, curriculumCatalog);
 
-    if (!targetSubject) {
-      return res.status(404).json({ error: 'Disciplina nao encontrada.' });
-    }
-
-    const currentProgress = new Set(user.progress?.[selectedCourseId] || []);
-    const childrenMap = buildChildrenMap(curriculum.subjects);
-
-    if (completed) {
-      const prerequisitesReady = targetSubject.prerequisites.every((prerequisiteId) => currentProgress.has(prerequisiteId));
-
-      if (!prerequisitesReady) {
-        return res.status(400).json({ error: 'Pre-requisitos ainda nao concluidos.' });
-      }
-
-      currentProgress.add(subjectId);
-    } else {
-      const dependentCompleted = Array.from(
-        collectDependentSubjects(subjectId, childrenMap),
-      ).filter((dependentId) => currentProgress.has(dependentId));
-
-      if (dependentCompleted.length > 0) {
-        return res.status(400).json({
-          error: `Nao e possivel desfazer esta disciplina enquanto ${dependentCompleted.join(', ')} estiver concluida.`,
-        });
-      }
-
-      currentProgress.delete(subjectId);
+    if (progressResult.error) {
+      return res.status(progressResult.status).json({ error: progressResult.error });
     }
 
     const updatedUser = await userRepository.updateById(user.id, {
       ...user,
       progress: {
         ...user.progress,
-        [selectedCourseId]: Array.from(currentProgress),
+        [progressResult.courseId]: progressResult.progress,
       },
     });
 
-    return res.json(buildMapPayload(updatedUser, selectedCourseId));
+    return res.json(buildMapPayload(updatedUser, progressResult.courseId));
   });
 
   app.use('/api', (req, res) => {

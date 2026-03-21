@@ -7,6 +7,8 @@ const require = createRequire(import.meta.url)
 const { createApp } = require('../app.cjs')
 const { hashPassword } = require('../security.cjs')
 
+const seededPasswordHash = hashPassword('Senhaforte1!', 'vitest-seed')
+
 function createInMemoryUserRepository(seedUsers = []) {
   const users = [...seedUsers]
 
@@ -43,26 +45,28 @@ function createInMemoryUserRepository(seedUsers = []) {
   }
 }
 
+function createSeedUser(progress = { cc: ['CC101', 'CC102'] }) {
+  return {
+    id: 'user-1',
+    name: 'Lucas Oliveira',
+    username: 'lucas',
+    registration: '2026000001',
+    email: 'lucas@universidade.edu.br',
+    courseId: 'cc',
+    avatarUrl: '',
+    passwordHash: seededPasswordHash,
+    sessionToken: 'token-1',
+    preferences: { theme: 'brand' },
+    progress,
+  }
+}
+
 describe('backend app routes', () => {
   let repo
   let app
 
   beforeEach(() => {
-    repo = createInMemoryUserRepository([
-      {
-        id: 'user-1',
-        name: 'Lucas Oliveira',
-        username: 'lucas',
-        registration: '2026000001',
-        email: 'lucas@universidade.edu.br',
-        courseId: 'cc',
-        avatarUrl: '',
-        passwordHash: hashPassword('Senhaforte1!'),
-        sessionToken: 'token-1',
-        preferences: { theme: 'brand' },
-        progress: { cc: ['CC101', 'CC102'] },
-      },
-    ])
+    repo = createInMemoryUserRepository([createSeedUser()])
 
     app = createApp({
       userRepository: repo,
@@ -166,19 +170,7 @@ describe('backend app routes', () => {
 
   it('bloqueia desfazer disciplina com dependentes concluidos', async () => {
     repo = createInMemoryUserRepository([
-      {
-        id: 'user-1',
-        name: 'Lucas Oliveira',
-        username: 'lucas',
-        registration: '2026000001',
-        email: 'lucas@universidade.edu.br',
-        courseId: 'cc',
-        avatarUrl: '',
-        passwordHash: hashPassword('Senhaforte1!'),
-        sessionToken: 'token-1',
-        preferences: { theme: 'brand' },
-        progress: { cc: ['CC101', 'CC102', 'CC201', 'CC301'] },
-      },
+      createSeedUser({ cc: ['CC101', 'CC102', 'CC201', 'CC301'] }),
     ])
 
     app = createApp({

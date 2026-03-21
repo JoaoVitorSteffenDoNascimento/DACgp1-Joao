@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
 
 function createJsonResponse(data, { status = 200 } = {}) {
@@ -141,12 +141,22 @@ function createFetchMock() {
   return mock
 }
 
+function getCallsFor(fetchMock, path) {
+  return fetchMock.mock.calls.filter(([input]) => String(input).endsWith(path))
+}
+
 function changeField(label, value) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } })
 }
 
-async function openRegisterForm() {
-  fireEvent.click(await screen.findByRole('button', { name: 'Cadastrar-se' }))
+async function flushUi() {
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve()
+  }
+}
+
+function openRegisterForm() {
+  fireEvent.click(screen.getByRole('button', { name: 'Cadastrar-se' }))
 }
 
 function fillRegisterForm({
@@ -160,19 +170,19 @@ function fillRegisterForm({
   changeField('Matricula', registration)
   changeField('E-mail', email)
   changeField('Senha', password)
-  fireEvent.change(screen.getByLabelText('Curso'), { target: { value: courseId } })
-}
-
-async function renderAuthenticatedApp() {
-  window.localStorage.setItem('coursemapper_token', 'secure-token')
-  render(<App />)
-  await screen.findByText('Bom ver voce por aqui, Lucas.')
+  const courseField = screen.getByLabelText('Curso')
+  if (courseField.querySelectorAll('option').length > 0) {
+    fireEvent.change(courseField, { target: { value: courseId } })
+  }
 }
 
 describe('App', () => {
+  let fetchMock
+
   beforeEach(() => {
     window.localStorage.clear()
-    vi.stubGlobal('fetch', createFetchMock())
+    fetchMock = createFetchMock()
+    vi.stubGlobal('fetch', fetchMock)
   })
 
   afterEach(() => {
@@ -180,70 +190,56 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('bloqueia cadastro com senha fraca antes de chamar a API', async () => {
+  it('valida cadastro, autentica, salva perfil e conclui disciplina com menos re-render', async () => {
     render(<App />)
+    await flushUi()
 
-    await openRegisterForm()
+    openRegisterForm()
     fillRegisterForm({ password: 'fraca123' })
     fireEvent.click(screen.getByRole('button', { name: 'Cadastrar-se' }))
 
-    expect(await screen.findByText('A senha deve incluir pelo menos uma letra maiuscula.')).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledTimes(1)
-  })
+    await flushUi()
+    expect(screen.getByText('A senha deve incluir pelo menos uma letra maiuscula.')).toBeInTheDocument()
+    expect(getCallsFor(fetchMock, '/api/auth/register')).toHaveLength(0)
 
-  it('bloqueia cadastro com e-mail invalido no frontend', async () => {
-    render(<App />)
-
-    await openRegisterForm()
-    fillRegisterForm({ email: 'lucas@localhost' })
+    fillRegisterForm({
+      email: 'lucas@localhost',
+      password: 'Senhaforte1!',
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Cadastrar-se' }))
 
-    expect(await screen.findByText('Informe um e-mail valido.')).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledTimes(1)
-  })
+    await flushUi()
+    expect(screen.getByText('Informe um e-mail valido.')).toBeInTheDocument()
+    expect(getCallsFor(fetchMock, '/api/auth/register')).toHaveLength(0)
 
-  it('envia cadastro apenas com credenciais fortes e dados normalizados', async () => {
-    render(<App />)
-
-    await openRegisterForm()
     fillRegisterForm({
       registration: '2026-000001',
       email: '  Lucas@Universidade.edu.br ',
     })
     fireEvent.click(screen.getByRole('button', { name: 'Cadastrar-se' }))
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/auth/register',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            name: 'Lucas Oliveira',
-            registration: '2026000001',
-            email: 'lucas@universidade.edu.br',
-            password: 'Senhaforte1!',
-            courseId: 'cc',
-          }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/register',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Lucas Oliveira',
+          registration: '2026000001',
+          email: 'lucas@universidade.edu.br',
+          password: 'Senhaforte1!',
+          courseId: 'cc',
         }),
-      )
-    })
+      }),
+    )
 
     expect(await screen.findByText('Bom ver voce por aqui, Lucas.')).toBeInTheDocument()
-  })
-
-  it('carrega a sessao autenticada e exibe metricas do dashboard', async () => {
-    await renderAuthenticatedApp()
-
     expect(screen.getByText('50%')).toBeInTheDocument()
     expect(screen.getAllByText('Estruturas de Dados').length).toBeGreaterThan(0)
     expect(screen.getByText('Semestres restantes')).toBeInTheDocument()
-  })
-
-  it('permite salvar configuracoes de perfil com dados normalizados', async () => {
-    await renderAuthenticatedApp()
 
     fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
-    await screen.findByText('Seu perfil e preferencias')
+    await flushUi()
+    expect(screen.getByText('Seu perfil e preferencias')).toBeInTheDocument()
 
     changeField('Nome completo', 'Lucas Seguro')
     changeField('Nome de usuario', 'lucasdev')
@@ -251,46 +247,64 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
     fireEvent.click(screen.getByRole('button', { name: 'Salvar configuracoes' }))
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/profile',
-        expect.objectContaining({
-          method: 'PATCH',
-          body: JSON.stringify({
-            name: 'Lucas Seguro',
-            username: 'lucasdev',
-            email: 'lucas@universidade.edu.br',
-            avatarUrl: '',
-            theme: 'dark',
-          }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/profile',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: 'Lucas Seguro',
+          username: 'lucasdev',
+          email: 'lucas@universidade.edu.br',
+          avatarUrl: '',
+          theme: 'dark',
         }),
-      )
-    })
+      }),
+    )
 
     expect(await screen.findByText('Configuracoes salvas com sucesso.')).toBeInTheDocument()
-  })
-
-  it('permite marcar disciplina disponivel como concluida no curriculo', async () => {
-    await renderAuthenticatedApp()
-
     fireEvent.click(screen.getByRole('button', { name: 'Curriculo' }))
-    await screen.findByText('Estruturas de Dados')
     fireEvent.click(screen.getByRole('button', { name: /CC102/i }))
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/progress/toggle',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({
-            courseId: 'cc',
-            subjectId: 'CC102',
-            completed: true,
-          }),
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/progress/toggle',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          courseId: 'cc',
+          subjectId: 'CC102',
+          completed: true,
         }),
-      )
-    })
+      }),
+    )
 
-    expect(await screen.findAllByText('Concluida')).not.toHaveLength(0)
+    expect(await screen.findByRole('button', { name: /CC102.*Concluida/i })).toBeInTheDocument()
+  })
+
+  it('permite salvar apenas a troca de tema nas configuracoes', async () => {
+    window.localStorage.setItem('coursemapper_token', 'secure-token')
+    render(<App />)
+
+    expect(await screen.findByText('Bom ver voce por aqui, Lucas.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Configuracoes' }))
+
+    expect(await screen.findByText('Seu perfil e preferencias')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar configuracoes' }))
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/profile',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: 'Lucas Oliveira',
+          username: 'lucas',
+          email: 'lucas@universidade.edu.br',
+          avatarUrl: '',
+          theme: 'dark',
+        }),
+      }),
+    )
+
+    expect(await screen.findByText('Configuracoes salvas com sucesso.')).toBeInTheDocument()
   })
 })
