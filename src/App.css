@@ -538,9 +538,9 @@
 }
 
 .status-pill.available {
-  background: var(--tag-bg);
-  color: var(--tag-text);
-  border: 1px solid var(--border);
+  background: var(--available-bg);
+  color: var(--available-text);
+  border: 1px solid var(--available-border);
 }
 
 .critical-chip {
@@ -874,8 +874,20 @@
   background: var(--success-bg);
 }
 
-.status-available {
-  background: var(--warning-bg);
+.subject-card.status-available {
+  background: var(--available-bg);
+  border-color: var(--available-border);
+}
+
+.subject-card.status-available .subject-topline,
+.subject-card.status-available .subject-meta,
+.subject-card.status-available .action-hint {
+  color: color-mix(in srgb, var(--available-text) 74%, var(--text-secondary));
+}
+
+.subject-card.status-available h4,
+.subject-card.status-available .subject-footer {
+  color: var(--available-text);
 }
 
 .status-locked {
