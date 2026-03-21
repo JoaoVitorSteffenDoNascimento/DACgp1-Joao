@@ -3,12 +3,14 @@ services:
     name: coursemapper-api
     runtime: node
     rootDir: .
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: node backend/server.cjs
     plan: free
     healthCheckPath: /api/health
     envVars:
       - key: PORT
         value: 10000
+      - key: VITE_API_BASE_URL
+        value: /api
       - key: STORAGE_DRIVER
         value: file

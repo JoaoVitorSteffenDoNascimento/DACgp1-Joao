@@ -565,6 +565,7 @@
 
 .board-page-card {
   overflow: hidden;
+  contain: paint;
 }
 
 .board-legend {
@@ -598,11 +599,14 @@
   overflow: auto;
   margin: 0 -4px -4px;
   padding: 4px 4px 10px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .board-canvas {
   position: relative;
   min-width: 100%;
+  contain: layout paint;
 }
 
 .board-grid {
@@ -730,6 +734,7 @@
   background: color-mix(in srgb, var(--surface) 95%, transparent);
   box-shadow: var(--shadow);
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 .board-node-check {

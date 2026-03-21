@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const cors = require('cors');
 const crypto = require('crypto');
 const compression = require('compression');
@@ -63,6 +65,9 @@ function createApp({
   emailDomainValidator = hasResolvableEmailDomain,
 } = {}) {
   const app = express();
+  const frontendDistDir = path.resolve(__dirname, '..', 'dist');
+  const frontendIndexPath = path.join(frontendDistDir, 'index.html');
+  const hasFrontendBuild = fs.existsSync(frontendIndexPath);
 
   app.use(cors());
   app.use(compression({ threshold: '2kb' }));
@@ -320,6 +325,25 @@ function createApp({
   app.use('/api', (req, res) => {
     return res.status(404).json({ error: 'Rota da API nao encontrada.' });
   });
+
+  if (hasFrontendBuild) {
+    app.use(express.static(frontendDistDir));
+
+    app.get('/{*path}', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+
+      return res.sendFile(frontendIndexPath);
+    });
+  } else {
+    app.get('/', (req, res) => {
+      return res.status(200).json({
+        ok: true,
+        message: 'CourseMapper API ativa. Gere o frontend para servir a interface por este endereco.',
+      });
+    });
+  }
 
   app.use((error, req, res, next) => {
     if (error?.type === 'entity.too.large') {

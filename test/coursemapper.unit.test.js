@@ -7,7 +7,10 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import {
+  buildBoardModel,
   buildBoardLayout,
+  buildOptimisticMapData,
+  canOptimisticallyToggleSubject,
   formatRegistration,
   getSettingsForm,
   getTrailOrder,
@@ -118,6 +121,19 @@ test('board layout places all subjects inside the expected grid', () => {
   assert.ok(layout.width > 0);
   assert.ok(layout.height > 0);
   assert.ok(layout.placements.get('CC101').x < layout.placements.get('CC202').x);
+});
+
+test('board model and optimistic updates keep frontend interactions responsive and consistent', () => {
+  const mapData = buildMapPayload(demoUser, 'cc');
+  const boardModel = buildBoardModel(mapData);
+  const availableSubject = mapData.subjects.find((subject) => subject.id === 'CC201');
+  const guard = canOptimisticallyToggleSubject(mapData, availableSubject);
+  const optimisticMap = buildOptimisticMapData(mapData, availableSubject.id, true);
+
+  assert.equal(guard.allowed, true);
+  assert.ok(boardModel.edges.length > 0);
+  assert.equal(optimisticMap.subjects.find((subject) => subject.id === 'CC201').status, 'completed');
+  assert.ok(optimisticMap.stats.completedCount > mapData.stats.completedCount);
 });
 
 test('core calculations stay under the 200 ms target', () => {

@@ -1,56 +1,22 @@
 import { memo, useMemo } from 'react';
 
 import {
+  buildBoardModel,
   boardMetrics,
-  buildBoardLayout,
   getBoardConnectorPath,
-  getTrailOrder,
   getTrailSlug,
   statusLabels,
 } from '../app-utils.js';
 
 function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
-  const semesters = useMemo(
-    () => [...new Set(mapData.subjects.map((subject) => subject.semester))].sort((a, b) => a - b),
-    [mapData.subjects],
-  );
-  const trailOrder = useMemo(
-    () => getTrailOrder(mapData.subjects, mapData.course.trailLabels),
-    [mapData.course.trailLabels, mapData.subjects],
-  );
-  const layout = useMemo(
-    () => buildBoardLayout(mapData.subjects, trailOrder, semesters),
-    [mapData.subjects, semesters, trailOrder],
-  );
-  const prerequisiteEdges = useMemo(
-    () => mapData.subjects.flatMap((subject) => subject.prerequisites
-      .filter((prerequisiteId) => layout.placements.has(prerequisiteId))
-      .map((prerequisiteId) => ({
-        id: `${prerequisiteId}-${subject.id}`,
-        type: 'prerequisite',
-        from: layout.placements.get(prerequisiteId),
-        to: layout.placements.get(subject.id),
-      }))),
-    [layout.placements, mapData.subjects],
-  );
-  const corequisiteEdges = useMemo(
-    () => mapData.subjects.flatMap((subject) => subject.corequisites
-      .filter((corequisiteId) => layout.placements.has(corequisiteId) && subject.id.localeCompare(corequisiteId) < 0)
-      .map((corequisiteId) => ({
-        id: `${subject.id}-${corequisiteId}`,
-        type: 'corequisite',
-        from: layout.placements.get(subject.id),
-        to: layout.placements.get(corequisiteId),
-      }))),
-    [layout.placements, mapData.subjects],
-  );
+  const { semesters, layout, edges } = useMemo(() => buildBoardModel(mapData), [mapData]);
 
   return (
     <div className="page-grid">
       <section className="page-header-card">
         <p className="section-kicker">Quadro</p>
         <h1>Leitura visual das cadeiras</h1>
-        <p>Uma versão mais diagramática do currículo, organizada por trilha e semestre, para enxergar dependências e caminhos de forma imediata.</p>
+        <p>Uma versao mais diagramatica do curriculo, organizada por trilha e semestre, para enxergar dependencias e caminhos de forma imediata.</p>
       </section>
       <section className="surface-card board-page-card">
         <div className="card-heading">
@@ -85,7 +51,7 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
                   className={`board-row-band trail-${getTrailSlug(row.trail)}`}
                 />
               ))}
-              {[...prerequisiteEdges, ...corequisiteEdges].map((edge) => (
+              {edges.map((edge) => (
                 <path
                   key={edge.id}
                   d={getBoardConnectorPath(edge.from, edge.to)}

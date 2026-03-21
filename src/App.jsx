@@ -2,6 +2,8 @@ import { lazy, Suspense, startTransition, useDeferredValue, useEffect, useState 
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import './App.css';
 import {
+  buildOptimisticMapData,
+  canOptimisticallyToggleSubject,
   formatRegistration,
   getCriticalSubjects,
   getInitialForm,
@@ -19,7 +21,9 @@ import {
   validateSettingsForm,
 } from './app-utils.js';
 
-const BoardPage = lazy(() => import('./pages/BoardPage.jsx'));
+const loadBoardPage = () => import('./pages/BoardPage.jsx');
+const BoardPage = lazy(loadBoardPage);
+let boardPagePreloadPromise;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const API_FALLBACK_URL = 'http://localhost:3001/api';
@@ -31,6 +35,33 @@ const setStoredToken = (token) => token ? window.localStorage.setItem(TOKEN_STOR
 const getStoredTheme = () => window.localStorage.getItem(THEME_STORAGE_KEY) || 'brand';
 const setStoredTheme = (theme) => window.localStorage.setItem(THEME_STORAGE_KEY, theme);
 const shouldUseLocalApiFallback = () => ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const preloadBoardPage = () => {
+  if (!boardPagePreloadPromise) {
+    boardPagePreloadPromise = loadBoardPage();
+  }
+
+  return boardPagePreloadPromise;
+};
+
+function scheduleBoardPreload() {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  if ('requestIdleCallback' in window) {
+    const idleId = window.requestIdleCallback(() => {
+      preloadBoardPage();
+    }, { timeout: 1200 });
+
+    return () => window.cancelIdleCallback(idleId);
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    preloadBoardPage();
+  }, 300);
+
+  return () => window.clearTimeout(timeoutId);
+}
 
 async function parseApiResponse(response) {
   if (response.status === 204) {
@@ -163,7 +194,7 @@ function AuthScreen({ authMode, form, setForm, onSubmit, setAuthMode, loading, e
   );
 }
 
-function Sidebar({ user, currentPage, onNavigate, selectedCourseId, setSelectedCourseId, curriculums, mapData, onLogout }) {
+function Sidebar({ user, currentPage, onNavigate, onPrefetchBoard, selectedCourseId, setSelectedCourseId, curriculums, mapData, onLogout }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-block">
@@ -174,7 +205,17 @@ function Sidebar({ user, currentPage, onNavigate, selectedCourseId, setSelectedC
         <p className="sidebar-label">Navegação</p>
         <div className="nav-list">
           {Object.entries(pageLabels).map(([page, label]) => (
-            <button key={page} type="button" className={`nav-button ${currentPage === page ? 'is-active' : ''}`} onClick={() => onNavigate(page)}>{label}</button>
+            <button
+              key={page}
+              type="button"
+              className={`nav-button ${currentPage === page ? 'is-active' : ''}`}
+              onClick={() => onNavigate(page)}
+              onMouseEnter={page === 'board' ? onPrefetchBoard : undefined}
+              onFocus={page === 'board' ? onPrefetchBoard : undefined}
+              onTouchStart={page === 'board' ? onPrefetchBoard : undefined}
+            >
+              {label}
+            </button>
           ))}
         </div>
       </div>
@@ -439,11 +480,15 @@ function Dashboard({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const deferredMapData = useDeferredValue(mapData);
+  const deferredSidebarMapData = useDeferredValue(mapData);
   const routeKey = location.pathname.replace(/^\//, '') || 'overview';
   const currentPage = pageLabels[routeKey] ? routeKey : 'overview';
 
   function handleNavigate(page) {
+    if (page === 'board') {
+      preloadBoardPage();
+    }
+
     const nextPath = page === 'overview' ? '/' : `/${page}`;
     startTransition(() => navigate(nextPath));
   }
@@ -454,16 +499,25 @@ function Dashboard({
       : `${pageLabels[currentPage]} | CourseMapper`;
   }, [currentPage]);
 
+  useEffect(() => {
+    if (!mapData || currentPage === 'board') {
+      return undefined;
+    }
+
+    return scheduleBoardPreload();
+  }, [currentPage, mapData]);
+
   return (
     <div className="dashboard-shell">
       <Sidebar
         user={user}
         currentPage={currentPage}
         onNavigate={handleNavigate}
+        onPrefetchBoard={preloadBoardPage}
         selectedCourseId={selectedCourseId}
         setSelectedCourseId={setSelectedCourseId}
         curriculums={curriculums}
-        mapData={deferredMapData}
+        mapData={deferredSidebarMapData}
         onLogout={onLogout}
       />
       <main className="dashboard-main">
@@ -474,20 +528,20 @@ function Dashboard({
         {dashboardError ? <p className="banner-error">{dashboardError}</p> : null}
         {mapLoading ? <p className="loading-copy">Carregando painel...</p> : (
           <Routes>
-            <Route path="/" element={deferredMapData ? <OverviewPage mapData={deferredMapData} user={user} curriculums={curriculums} onNavigate={handleNavigate} /> : null} />
-            <Route path="/curriculum" element={deferredMapData ? <CurriculumPage mapData={deferredMapData} actionLoadingId={actionLoadingId} onToggleSubject={onToggleSubject} /> : null} />
+            <Route path="/" element={mapData ? <OverviewPage mapData={mapData} user={user} curriculums={curriculums} onNavigate={handleNavigate} /> : null} />
+            <Route path="/curriculum" element={mapData ? <CurriculumPage mapData={mapData} actionLoadingId={actionLoadingId} onToggleSubject={onToggleSubject} /> : null} />
             <Route
               path="/board"
-              element={deferredMapData ? (
+              element={mapData ? (
                 <Suspense fallback={<p className="loading-copy">Preparando quadro de cadeiras...</p>}>
-                  <BoardPage mapData={deferredMapData} actionLoadingId={actionLoadingId} onToggleSubject={onToggleSubject} />
+                  <BoardPage mapData={mapData} actionLoadingId={actionLoadingId} onToggleSubject={onToggleSubject} />
                 </Suspense>
               ) : null}
             />
-            <Route path="/analytics" element={deferredMapData ? <AnalyticsPage mapData={deferredMapData} /> : null} />
+            <Route path="/analytics" element={mapData ? <AnalyticsPage mapData={mapData} /> : null} />
             <Route
               path="/settings"
-              element={deferredMapData ? (
+              element={mapData ? (
                 <SettingsPage
                   user={user}
                   settingsForm={settingsForm}
@@ -653,8 +707,21 @@ export default function App() {
 
   async function handleToggleSubject(subject) {
     if (!token || subject.status === 'locked') return;
+
+    const guard = canOptimisticallyToggleSubject(mapData, subject);
+    if (!guard.allowed) {
+      setDashboardError(guard.error);
+      return;
+    }
+
+    const previousMapData = mapData;
+    const shouldComplete = subject.status !== 'completed';
     setActionLoadingId(subject.id);
     setDashboardError('');
+
+    if (previousMapData) {
+      setMapData(buildOptimisticMapData(previousMapData, subject.id, shouldComplete));
+    }
 
     try {
       const response = await apiRequest('/progress/toggle', {
@@ -662,11 +729,14 @@ export default function App() {
         body: JSON.stringify({
           courseId: selectedCourseId,
           subjectId: subject.id,
-          completed: subject.status !== 'completed',
+          completed: shouldComplete,
         }),
       }, token);
       setMapData(response);
     } catch (error) {
+      if (previousMapData) {
+        setMapData(previousMapData);
+      }
       setDashboardError(error.message);
     } finally {
       setActionLoadingId('');

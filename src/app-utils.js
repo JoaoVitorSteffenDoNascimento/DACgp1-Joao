@@ -168,6 +168,201 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
   };
 }
 
+function countRemainingChain(subjectId, pendingIds, subjectMap, memo = new Map()) {
+  if (memo.has(subjectId)) {
+    return memo.get(subjectId);
+  }
+
+  const subject = subjectMap.get(subjectId);
+  const pendingPrerequisites = subject.prerequisites.filter((prerequisiteId) => pendingIds.has(prerequisiteId));
+
+  if (pendingPrerequisites.length === 0) {
+    memo.set(subjectId, 1);
+    return 1;
+  }
+
+  const depth = 1 + Math.max(...pendingPrerequisites.map((prerequisiteId) => (
+    countRemainingChain(prerequisiteId, pendingIds, subjectMap, memo)
+  )));
+
+  memo.set(subjectId, depth);
+  return depth;
+}
+
+function buildDependentMap(subjects) {
+  const dependentMap = new Map(subjects.map((subject) => [subject.id, []]));
+
+  subjects.forEach((subject) => {
+    subject.prerequisites.forEach((prerequisiteId) => {
+      if (!dependentMap.has(prerequisiteId)) {
+        dependentMap.set(prerequisiteId, []);
+      }
+
+      dependentMap.get(prerequisiteId).push(subject.id);
+    });
+  });
+
+  return dependentMap;
+}
+
+function sortSubjects(subjects) {
+  return [...subjects].sort((first, second) => {
+    if (first.semester !== second.semester) {
+      return first.semester - second.semester;
+    }
+
+    if (statusOrder[first.status] !== statusOrder[second.status]) {
+      return statusOrder[first.status] - statusOrder[second.status];
+    }
+
+    return first.id.localeCompare(second.id);
+  });
+}
+
+export function buildOptimisticMapData(mapData, subjectId, shouldComplete) {
+  const subjectMap = new Map(mapData.subjects.map((subject) => [subject.id, subject]));
+  const completedIds = new Set(
+    mapData.subjects
+      .filter((subject) => subject.status === 'completed')
+      .map((subject) => subject.id),
+  );
+
+  if (!subjectMap.has(subjectId)) {
+    return mapData;
+  }
+
+  if (shouldComplete) {
+    completedIds.add(subjectId);
+  } else {
+    completedIds.delete(subjectId);
+  }
+
+  let completedCount = 0;
+  let availableCount = 0;
+
+  const subjects = sortSubjects(mapData.subjects.map((subject) => {
+    const allPrerequisitesDone = subject.prerequisites.every((prerequisiteId) => completedIds.has(prerequisiteId));
+    const status = completedIds.has(subject.id)
+      ? 'completed'
+      : allPrerequisitesDone
+        ? 'available'
+        : 'locked';
+
+    if (status === 'completed') {
+      completedCount += 1;
+    } else if (status === 'available') {
+      availableCount += 1;
+    }
+
+    return {
+      ...subject,
+      status,
+    };
+  }));
+
+  const pendingIds = new Set(subjects.filter((subject) => subject.status !== 'completed').map((subject) => subject.id));
+  const totalSubjects = subjects.length;
+  const remainingCriticalSemesters = pendingIds.size === 0
+    ? 0
+    : Math.max(...Array.from(pendingIds, (pendingId) => countRemainingChain(pendingId, pendingIds, subjectMap)));
+
+  return {
+    ...mapData,
+    stats: {
+      ...mapData.stats,
+      totalSubjects,
+      completedCount,
+      availableCount,
+      lockedCount: totalSubjects - completedCount - availableCount,
+      completionRate: totalSubjects === 0 ? 0 : Math.round((completedCount / totalSubjects) * 100),
+      remainingCriticalSemesters,
+    },
+    subjects,
+  };
+}
+
+export function canOptimisticallyToggleSubject(mapData, subject) {
+  if (!mapData || !subject || subject.status === 'locked') {
+    return { allowed: false, error: 'Disciplina bloqueada.' };
+  }
+
+  const dependentMap = buildDependentMap(mapData.subjects);
+  const completedIds = new Set(
+    mapData.subjects
+      .filter((item) => item.status === 'completed')
+      .map((item) => item.id),
+  );
+
+  if (subject.status !== 'completed') {
+    const prerequisitesReady = subject.prerequisites.every((prerequisiteId) => completedIds.has(prerequisiteId));
+
+    return prerequisitesReady
+      ? { allowed: true }
+      : { allowed: false, error: 'Pre-requisitos ainda nao concluidos.' };
+  }
+
+  const completedDependents = (dependentMap.get(subject.id) || []).filter((dependentId) => completedIds.has(dependentId));
+
+  if (completedDependents.length > 0) {
+    return {
+      allowed: false,
+      error: `Nao e possivel desfazer esta disciplina enquanto ${completedDependents.join(', ')} estiver concluida.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+export function buildBoardModel(mapData) {
+  const semesters = [...new Set(mapData.subjects.map((subject) => subject.semester))].sort((a, b) => a - b);
+  const trailOrder = getTrailOrder(mapData.subjects, mapData.course.trailLabels);
+  const layout = buildBoardLayout(mapData.subjects, trailOrder, semesters);
+  const edges = [];
+
+  mapData.subjects.forEach((subject) => {
+    const to = layout.placements.get(subject.id);
+
+    if (!to) {
+      return;
+    }
+
+    subject.prerequisites.forEach((prerequisiteId) => {
+      const from = layout.placements.get(prerequisiteId);
+
+      if (from) {
+        edges.push({
+          id: `${prerequisiteId}-${subject.id}`,
+          type: 'prerequisite',
+          from,
+          to,
+        });
+      }
+    });
+
+    subject.corequisites
+      .filter((corequisiteId) => subject.id.localeCompare(corequisiteId) < 0)
+      .forEach((corequisiteId) => {
+        const from = layout.placements.get(corequisiteId);
+
+        if (from) {
+          edges.push({
+            id: `${subject.id}-${corequisiteId}`,
+            type: 'corequisite',
+            from: to,
+            to: from,
+          });
+        }
+      });
+  });
+
+  return {
+    semesters,
+    trailOrder,
+    layout,
+    edges,
+  };
+}
+
 export function getBoardConnectorPath(source, target) {
   const startX = source.x + source.width;
   const startY = source.y + (source.height / 2);
