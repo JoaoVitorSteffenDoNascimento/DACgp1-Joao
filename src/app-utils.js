@@ -172,6 +172,8 @@ export const boardMetrics = {
   cardHeight: 98,
   cardGap: 12,
   rowGap: 24,
+  bandInsetX: 12,
+  bandInsetY: 8,
 };
 
 export function getTrailSlug(trail) {
@@ -227,6 +229,7 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
   });
 
   const placements = new Map();
+  const cellMeta = [];
 
   rowMeta.forEach((row) => {
     semesters.forEach((semester, columnIndex) => {
@@ -239,6 +242,16 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
         boardMetrics.cellPaddingY,
         (row.height - stackHeight) / 2,
       );
+
+      cellMeta.push({
+        key: cellKey,
+        trail: row.trail,
+        semester,
+        x: boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.bandInsetX,
+        y: row.y + boardMetrics.bandInsetY,
+        width: boardMetrics.columnWidth - (boardMetrics.bandInsetX * 2),
+        height: row.height - (boardMetrics.bandInsetY * 2),
+      });
 
       items.forEach((subject, index) => {
         placements.set(subject.id, {
@@ -253,6 +266,7 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
 
   return {
     rowMeta,
+    cellMeta,
     placements,
     width: boardMetrics.labelColumnWidth + (semesters.length * boardMetrics.columnWidth),
     height: Math.max(boardMetrics.headerHeight, currentY - boardMetrics.rowGap),
@@ -423,6 +437,8 @@ export function buildBoardModel(mapData) {
       if (from) {
         edges.push({
           id: `${prerequisiteId}-${subject.id}`,
+          fromId: prerequisiteId,
+          toId: subject.id,
           type: 'prerequisite',
           from,
           to,
@@ -438,11 +454,40 @@ export function buildBoardModel(mapData) {
         if (from) {
           edges.push({
             id: `${subject.id}-${corequisiteId}`,
+            fromId: subject.id,
+            toId: corequisiteId,
             type: 'corequisite',
             from: to,
             to: from,
           });
         }
+      });
+  });
+
+  const groupedEdges = new Map();
+
+  edges
+    .filter((edge) => edge.type === 'prerequisite')
+    .forEach((edge) => {
+      if (!groupedEdges.has(edge.toId)) {
+        groupedEdges.set(edge.toId, []);
+      }
+
+      groupedEdges.get(edge.toId).push(edge);
+    });
+
+  groupedEdges.forEach((group) => {
+    group
+      .sort((first, second) => {
+        if (first.from.y !== second.from.y) {
+          return first.from.y - second.from.y;
+        }
+
+        return first.fromId.localeCompare(second.fromId);
+      })
+      .forEach((edge, index) => {
+        edge.laneIndex = index;
+        edge.laneCount = group.length;
       });
   });
 
@@ -454,18 +499,34 @@ export function buildBoardModel(mapData) {
   };
 }
 
-export function getBoardConnectorPath(source, target) {
-  const startX = source.x + source.width;
+export function getBoardConnectorPath(edgeOrSource, maybeTarget) {
+  const edge = maybeTarget
+    ? { from: edgeOrSource, to: maybeTarget, type: 'prerequisite', laneIndex: 0, laneCount: 1 }
+    : edgeOrSource;
+  const {
+    from: source,
+    to: target,
+    type = 'prerequisite',
+    laneIndex = 0,
+    laneCount = 1,
+  } = edge;
+  const sameColumn = source.x === target.x;
+  const startX = (type === 'corequisite' && sameColumn) ? source.x : source.x + source.width;
   const startY = source.y + (source.height / 2);
   const endX = target.x;
   const endY = target.y + (target.height / 2);
-  const distanceX = endX - startX;
-  const lead = Math.max(24, Math.min(56, distanceX * 0.28));
-  const startLeadX = startX + lead;
-  const endLeadX = endX - lead;
-  const midX = startX + (distanceX / 2);
+  const laneSpread = 14;
 
-  return `M ${startX} ${startY} L ${startLeadX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endLeadX} ${endY} L ${endX} ${endY}`;
+  if (type === 'corequisite' && sameColumn) {
+    const laneX = source.x - 26;
+
+    return `M ${startX} ${startY} L ${laneX} ${startY} L ${laneX} ${endY} L ${endX} ${endY}`;
+  }
+
+  const laneOffset = laneCount > 1 ? ((laneCount - 1 - laneIndex) * laneSpread) : 0;
+  const elbowX = Math.max(startX + 28, endX - 28 - laneOffset);
+
+  return `M ${startX} ${startY} L ${elbowX} ${startY} L ${elbowX} ${endY} L ${endX} ${endY}`;
 }
 
 export function getInitials(name) {

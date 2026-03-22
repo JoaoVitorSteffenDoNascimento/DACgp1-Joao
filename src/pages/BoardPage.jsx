@@ -83,21 +83,21 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
                   className={`board-divider ${index === 0 ? 'major' : ''}`}
                 />
               ))}
-              {layout.rowMeta.map((row) => (
+              {layout.cellMeta.map((cell) => (
                 <rect
-                  key={row.trail}
-                  x={boardMetrics.labelColumnWidth + 10}
-                  y={row.y}
-                  width={layout.width - boardMetrics.labelColumnWidth - 20}
-                  height={row.height}
+                  key={cell.key}
+                  x={cell.x}
+                  y={cell.y}
+                  width={cell.width}
+                  height={cell.height}
                   rx="22"
-                  className={`board-row-band trail-${getTrailSlug(row.trail)}`}
+                  className={`board-row-band trail-${getTrailSlug(cell.trail)}`}
                 />
               ))}
               {edges.map((edge) => (
                 <path
                   key={edge.id}
-                  d={getBoardConnectorPath(edge.from, edge.to)}
+                  d={getBoardConnectorPath(edge)}
                   className={`board-edge ${edge.type}`}
                 />
               ))}
