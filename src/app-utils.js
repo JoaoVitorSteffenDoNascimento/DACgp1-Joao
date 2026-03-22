@@ -340,6 +340,8 @@ export function buildBoardModel(mapData) {
       if (from) {
         edges.push({
           id: `${prerequisiteId}-${subject.id}`,
+          fromId: prerequisiteId,
+          toId: subject.id,
           type: 'prerequisite',
           from,
           to,
@@ -355,11 +357,40 @@ export function buildBoardModel(mapData) {
         if (from) {
           edges.push({
             id: `${subject.id}-${corequisiteId}`,
+            fromId: subject.id,
+            toId: corequisiteId,
             type: 'corequisite',
             from: to,
             to: from,
           });
         }
+      });
+  });
+
+  const prerequisiteGroups = new Map();
+
+  edges
+    .filter((edge) => edge.type === 'prerequisite')
+    .forEach((edge) => {
+      if (!prerequisiteGroups.has(edge.toId)) {
+        prerequisiteGroups.set(edge.toId, []);
+      }
+
+      prerequisiteGroups.get(edge.toId).push(edge);
+    });
+
+  prerequisiteGroups.forEach((group) => {
+    group
+      .sort((first, second) => {
+        if (first.from.y !== second.from.y) {
+          return first.from.y - second.from.y;
+        }
+
+        return first.fromId.localeCompare(second.fromId);
+      })
+      .forEach((edge, index) => {
+        edge.laneIndex = index;
+        edge.laneCount = group.length;
       });
   });
 
@@ -371,27 +402,36 @@ export function buildBoardModel(mapData) {
   };
 }
 
-export function getBoardConnectorPath(source, target) {
-  const startX = source.x + source.width;
+export function getBoardConnectorPath(edgeOrSource, maybeTarget) {
+  const edge = maybeTarget
+    ? { from: edgeOrSource, to: maybeTarget, type: 'prerequisite', laneIndex: 0, laneCount: 1 }
+    : edgeOrSource;
+  const { from: source, to: target, type, laneIndex = 0, laneCount = 1 } = edge;
+  const startFromLeft = type === 'corequisite' && source.x === target.x;
+  const endOnLeft = type === 'corequisite' && source.x === target.x;
+  const startX = startFromLeft ? source.x : source.x + source.width;
   const startY = source.y + (source.height / 2);
-  const endX = target.x;
+  const endX = endOnLeft ? target.x : target.x;
   const endY = target.y + (target.height / 2);
-  const targetRightX = target.x + target.width;
-  const distanceX = endX - startX;
+  const distanceX = target.x - (source.x + source.width);
 
-  if (distanceX <= 32) {
-    const bracketX = Math.max(startX, targetRightX) + 28;
-    const lead = 16;
+  if (type === 'corequisite' && source.x === target.x) {
+    const laneX = source.x - 24;
 
-    return `M ${startX} ${startY} L ${bracketX - lead} ${startY} C ${bracketX} ${startY}, ${bracketX} ${endY}, ${bracketX - lead} ${endY} L ${targetRightX} ${endY}`;
+    return `M ${startX} ${startY} L ${laneX} ${startY} L ${laneX} ${endY} L ${endX} ${endY}`;
   }
 
-  const lead = Math.max(24, Math.min(56, distanceX * 0.28));
-  const startLeadX = startX + lead;
-  const endLeadX = endX - lead;
-  const midX = startX + (distanceX / 2);
+  const laneSpread = 12;
+  const laneOffset = laneCount > 1 ? ((laneCount - 1 - laneIndex) * laneSpread) : 0;
+  const approachX = Math.max(startX + 28, endX - 24 - laneOffset);
 
-  return `M ${startX} ${startY} L ${startLeadX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endLeadX} ${endY} L ${endX} ${endY}`;
+  if (distanceX <= 32) {
+    const laneX = Math.max(startX, target.x + target.width) + 24 + laneOffset;
+
+    return `M ${startX} ${startY} L ${laneX} ${startY} L ${laneX} ${endY} L ${target.x + target.width} ${endY}`;
+  }
+
+  return `M ${startX} ${startY} L ${approachX} ${startY} L ${approachX} ${endY} L ${endX} ${endY}`;
 }
 
 export function getInitials(name) {

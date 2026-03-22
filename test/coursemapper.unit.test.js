@@ -150,16 +150,17 @@ test('board connectors use a more guided curve between cards', () => {
     { x: 426, y: 245, width: 170, height: 98 },
   );
 
-  assert.match(path, /^M 358 184 L 414 184 C 477 184, 477 294, 370 294 L 426 294$/);
+  assert.match(path, /^M 358 184 L 402 184 L 402 294 L 426 294$/);
 });
 
 test('board connectors stay close to cards when subjects share the same semester column', () => {
-  const path = getBoardConnectorPath(
-    { x: 748, y: 185, width: 170, height: 98 },
-    { x: 748, y: 391, width: 170, height: 98 },
-  );
+  const path = getBoardConnectorPath({
+    type: 'corequisite',
+    from: { x: 748, y: 185, width: 170, height: 98 },
+    to: { x: 748, y: 391, width: 170, height: 98 },
+  });
 
-  assert.match(path, /^M 918 234 L 930 234 C 946 234, 946 440, 930 440 L 918 440$/);
+  assert.match(path, /^M 748 234 L 724 234 L 724 440 L 748 440$/);
 });
 
 test('core calculations stay under the 200 ms target', () => {

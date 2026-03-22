@@ -97,7 +97,7 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
               {edges.map((edge) => (
                 <path
                   key={edge.id}
-                  d={getBoardConnectorPath(edge.from, edge.to)}
+                  d={getBoardConnectorPath(edge)}
                   className={`board-edge ${edge.type}`}
                 />
               ))}
