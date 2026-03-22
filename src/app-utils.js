@@ -172,8 +172,6 @@ export const boardMetrics = {
   cardHeight: 98,
   cardGap: 12,
   rowGap: 24,
-  cellPanelInsetX: 12,
-  cellPanelInsetY: 8,
 };
 
 export function getTrailSlug(trail) {
@@ -229,7 +227,6 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
   });
 
   const placements = new Map();
-  const cellMeta = [];
 
   rowMeta.forEach((row) => {
     semesters.forEach((semester, columnIndex) => {
@@ -245,16 +242,6 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
       const cardX = boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.cellPaddingX;
       const cardWidth = boardMetrics.columnWidth - (boardMetrics.cellPaddingX * 2);
 
-      cellMeta.push({
-        key: cellKey,
-        trail: row.trail,
-        semester,
-        x: boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.cellPanelInsetX,
-        y: row.y + boardMetrics.cellPanelInsetY,
-        width: boardMetrics.columnWidth - (boardMetrics.cellPanelInsetX * 2),
-        height: row.height - (boardMetrics.cellPanelInsetY * 2),
-      });
-
       items.forEach((subject, index) => {
         placements.set(subject.id, {
           x: cardX,
@@ -268,7 +255,6 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
 
   return {
     rowMeta,
-    cellMeta,
     placements,
     width: boardMetrics.labelColumnWidth + (semesters.length * boardMetrics.columnWidth),
     height: Math.max(boardMetrics.headerHeight, currentY - boardMetrics.rowGap),
@@ -518,18 +504,26 @@ export function getBoardConnectorPath(edgeOrSource, maybeTarget) {
   const endX = target.x;
   const endY = target.y + (target.height / 2);
   const laneSpread = 14;
+  const corner = 14;
 
   if (type === 'corequisite' && sameColumn) {
     const laneX = source.x + source.width + 18;
     const targetRightX = target.x + target.width;
+    const verticalDirection = endY > startY ? 1 : -1;
+    const beforeTurnY = endY - (corner * verticalDirection);
+    const afterTurnX = targetRightX - corner;
 
-    return `M ${startX} ${startY} L ${laneX} ${startY} L ${laneX} ${endY} L ${targetRightX} ${endY}`;
+    return `M ${startX} ${startY} L ${laneX - corner} ${startY} Q ${laneX} ${startY} ${laneX} ${startY + (corner * verticalDirection)} L ${laneX} ${beforeTurnY} Q ${laneX} ${endY} ${afterTurnX} ${endY} L ${targetRightX} ${endY}`;
   }
 
   const laneOffset = laneCount > 1 ? ((laneCount - 1 - laneIndex) * laneSpread) : 0;
   const elbowX = Math.max(startX + 24, endX - 18 - laneOffset);
+  const verticalDirection = endY > startY ? 1 : -1;
+  const beforeTurnX = elbowX - corner;
+  const beforeTurnY = endY - (corner * verticalDirection);
+  const afterTurnX = endX - corner;
 
-  return `M ${startX} ${startY} L ${elbowX} ${startY} L ${elbowX} ${endY} L ${endX} ${endY}`;
+  return `M ${startX} ${startY} L ${beforeTurnX} ${startY} Q ${elbowX} ${startY} ${elbowX} ${startY + (corner * verticalDirection)} L ${elbowX} ${beforeTurnY} Q ${elbowX} ${endY} ${afterTurnX} ${endY} L ${endX} ${endY}`;
 }
 
 export function getInitials(name) {

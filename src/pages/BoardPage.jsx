@@ -71,6 +71,18 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
         />
         <div className="board-scroll">
           <div className="board-canvas" style={{ width: `${layout.width}px`, height: `${layout.height}px` }}>
+            {semesters.map((semester, index) => (
+              <div
+                key={`column-${semester}`}
+                className="board-column-backdrop"
+                style={{
+                  left: `${boardMetrics.labelColumnWidth + (index * boardMetrics.columnWidth) + 12}px`,
+                  top: `${boardMetrics.headerHeight}px`,
+                  width: `${boardMetrics.columnWidth - 24}px`,
+                  height: `${layout.height - boardMetrics.headerHeight - 6}px`,
+                }}
+              />
+            ))}
             <svg className="board-grid" viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden="true">
               <line x1={boardMetrics.labelColumnWidth} y1="14" x2={boardMetrics.labelColumnWidth} y2={layout.height} className="board-divider major" />
               {semesters.map((semester, index) => (
@@ -81,17 +93,6 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
                   x2={boardMetrics.labelColumnWidth + (index * boardMetrics.columnWidth)}
                   y2={layout.height}
                   className={`board-divider ${index === 0 ? 'major' : ''}`}
-                />
-              ))}
-              {layout.cellMeta.map((cell) => (
-                <rect
-                  key={cell.key}
-                  x={cell.x}
-                  y={cell.y}
-                  width={cell.width}
-                  height={cell.height}
-                  rx="18"
-                  className={`board-row-band trail-${getTrailSlug(cell.trail)}`}
                 />
               ))}
               {edges.map((edge) => (
