@@ -149,10 +149,18 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
     semesters.forEach((semester, columnIndex) => {
       const cellKey = `${row.trail}::${semester}`;
       const items = cellSubjects.get(cellKey) || [];
+      const stackHeight = items.length > 0
+        ? (items.length * boardMetrics.cardHeight) + ((items.length - 1) * boardMetrics.cardGap)
+        : 0;
+      const startY = row.y + Math.max(
+        boardMetrics.cellPaddingY,
+        (row.height - stackHeight) / 2,
+      );
+
       items.forEach((subject, index) => {
         placements.set(subject.id, {
           x: boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.cellPaddingX,
-          y: row.y + boardMetrics.cellPaddingY + (index * (boardMetrics.cardHeight + boardMetrics.cardGap)),
+          y: startY + (index * (boardMetrics.cardHeight + boardMetrics.cardGap)),
           width: boardMetrics.columnWidth - (boardMetrics.cellPaddingX * 2),
           height: boardMetrics.cardHeight,
         });
@@ -368,9 +376,13 @@ export function getBoardConnectorPath(source, target) {
   const startY = source.y + (source.height / 2);
   const endX = target.x;
   const endY = target.y + (target.height / 2);
-  const controlOffset = Math.max(34, (endX - startX) * 0.45);
+  const distanceX = endX - startX;
+  const lead = Math.max(24, Math.min(56, distanceX * 0.28));
+  const startLeadX = startX + lead;
+  const endLeadX = endX - lead;
+  const midX = startX + (distanceX / 2);
 
-  return `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
+  return `M ${startX} ${startY} L ${startLeadX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endLeadX} ${endY} L ${endX} ${endY}`;
 }
 
 export function getInitials(name) {

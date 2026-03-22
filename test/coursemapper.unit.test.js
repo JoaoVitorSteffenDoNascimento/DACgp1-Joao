@@ -12,6 +12,7 @@ import {
   buildOptimisticMapData,
   canOptimisticallyToggleSubject,
   formatRegistration,
+  getBoardConnectorPath,
   getSettingsForm,
   getTrailOrder,
   groupBySemester,
@@ -116,11 +117,18 @@ test('board layout places all subjects inside the expected grid', () => {
   const trailOrder = getTrailOrder(mapData.subjects, mapData.course.trailLabels);
   const semesters = [...new Set(mapData.subjects.map((subject) => subject.semester))].sort((a, b) => a - b);
   const layout = buildBoardLayout(mapData.subjects, trailOrder, semesters);
+  const row = layout.rowMeta.find((item) => item.trail === 'Desenvolvedor');
+  const topCard = layout.placements.get('CC201');
+  const lowerCard = layout.placements.get('CC302');
+  const stackHeight = (2 * 98) + 12;
+  const expectedStartY = row.y + Math.max(14, (row.height - stackHeight) / 2);
 
   assert.equal(layout.placements.size, mapData.subjects.length);
   assert.ok(layout.width > 0);
   assert.ok(layout.height > 0);
   assert.ok(layout.placements.get('CC101').x < layout.placements.get('CC202').x);
+  assert.equal(topCard.y, expectedStartY);
+  assert.equal(lowerCard.y, expectedStartY + 110);
 });
 
 test('board model and optimistic updates keep frontend interactions responsive and consistent', () => {
@@ -134,6 +142,15 @@ test('board model and optimistic updates keep frontend interactions responsive a
   assert.ok(boardModel.edges.length > 0);
   assert.equal(optimisticMap.subjects.find((subject) => subject.id === 'CC201').status, 'completed');
   assert.ok(optimisticMap.stats.completedCount > mapData.stats.completedCount);
+});
+
+test('board connectors use a more guided curve between cards', () => {
+  const path = getBoardConnectorPath(
+    { x: 188, y: 135, width: 170, height: 98 },
+    { x: 426, y: 245, width: 170, height: 98 },
+  );
+
+  assert.match(path, /^M 358 184 L 414 184 C 477 184, 477 294, 370 294 L 426 294$/);
 });
 
 test('core calculations stay under the 200 ms target', () => {
