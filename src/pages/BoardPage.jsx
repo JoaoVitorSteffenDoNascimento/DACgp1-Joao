@@ -83,16 +83,18 @@ function BoardPage({ mapData, actionLoadingId, onToggleSubject }) {
                   className={`board-divider ${index === 0 ? 'major' : ''}`}
                 />
               ))}
-              {layout.rowMeta.map((row) => (
-                <rect
-                  key={row.trail}
-                  x={boardMetrics.labelColumnWidth + 10}
-                  y={row.y}
-                  width={layout.width - boardMetrics.labelColumnWidth - 20}
-                  height={row.height}
-                  rx="22"
-                  className={`board-row-band trail-${getTrailSlug(row.trail)}`}
-                />
+              {layout.rowMeta.flatMap((row) => (
+                semesters.map((semester, index) => (
+                  <rect
+                    key={`${row.trail}-${semester}`}
+                    x={boardMetrics.labelColumnWidth + (index * boardMetrics.columnWidth) + 8}
+                    y={row.y}
+                    width={boardMetrics.columnWidth - 16}
+                    height={row.height}
+                    rx="22"
+                    className={`board-row-band trail-${getTrailSlug(row.trail)}`}
+                  />
+                ))
               ))}
               {edges.map((edge) => (
                 <path
