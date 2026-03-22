@@ -120,6 +120,7 @@ test('board layout places all subjects inside the expected grid', () => {
   const row = layout.rowMeta.find((item) => item.trail === 'Desenvolvedor');
   const topCard = layout.placements.get('CC201');
   const lowerCard = layout.placements.get('CC302');
+  const baseFirstCell = layout.cellMeta.find((item) => item.key === 'Base::1');
   const stackHeight = (2 * 98) + 12;
   const expectedStartY = row.y + Math.max(14, (row.height - stackHeight) / 2);
 
@@ -127,6 +128,9 @@ test('board layout places all subjects inside the expected grid', () => {
   assert.ok(layout.width > 0);
   assert.ok(layout.height > 0);
   assert.ok(layout.placements.get('CC101').x < layout.placements.get('CC202').x);
+  assert.ok(baseFirstCell);
+  assert.equal(baseFirstCell.x, 178);
+  assert.equal(baseFirstCell.width, 190);
   assert.equal(topCard.y, expectedStartY);
   assert.equal(lowerCard.y, expectedStartY + 110);
 });

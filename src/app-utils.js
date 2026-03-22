@@ -89,6 +89,8 @@ export const boardMetrics = {
   cardHeight: 98,
   cardGap: 12,
   rowGap: 24,
+  cellBandPaddingX: 10,
+  cellBandPaddingY: 10,
 };
 
 export function getTrailSlug(trail) {
@@ -144,6 +146,7 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
   });
 
   const placements = new Map();
+  const cellMeta = [];
 
   rowMeta.forEach((row) => {
     semesters.forEach((semester, columnIndex) => {
@@ -151,17 +154,29 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
       const items = cellSubjects.get(cellKey) || [];
       const stackHeight = items.length > 0
         ? (items.length * boardMetrics.cardHeight) + ((items.length - 1) * boardMetrics.cardGap)
-        : 0;
+        : boardMetrics.cardHeight;
       const startY = row.y + Math.max(
         boardMetrics.cellPaddingY,
         (row.height - stackHeight) / 2,
       );
+      const cardX = boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.cellPaddingX;
+      const cardWidth = boardMetrics.columnWidth - (boardMetrics.cellPaddingX * 2);
+
+      cellMeta.push({
+        key: cellKey,
+        trail: row.trail,
+        semester,
+        x: cardX - boardMetrics.cellBandPaddingX,
+        y: startY - boardMetrics.cellBandPaddingY,
+        width: cardWidth + (boardMetrics.cellBandPaddingX * 2),
+        height: stackHeight + (boardMetrics.cellBandPaddingY * 2),
+      });
 
       items.forEach((subject, index) => {
         placements.set(subject.id, {
-          x: boardMetrics.labelColumnWidth + (columnIndex * boardMetrics.columnWidth) + boardMetrics.cellPaddingX,
+          x: cardX,
           y: startY + (index * (boardMetrics.cardHeight + boardMetrics.cardGap)),
-          width: boardMetrics.columnWidth - (boardMetrics.cellPaddingX * 2),
+          width: cardWidth,
           height: boardMetrics.cardHeight,
         });
       });
@@ -170,6 +185,7 @@ export function buildBoardLayout(subjects, trailOrder, semesters) {
 
   return {
     rowMeta,
+    cellMeta,
     placements,
     width: boardMetrics.labelColumnWidth + (semesters.length * boardMetrics.columnWidth),
     height: Math.max(boardMetrics.headerHeight, currentY - boardMetrics.rowGap),
