@@ -163,7 +163,7 @@ test('board connectors keep same-column corequisites compact', () => {
     type: 'corequisite',
   });
 
-  assert.match(path, /^M 902 192 C 880 192, 880 294\.5, 880 294\.5 S 880 397, 902 397$/);
+  assert.match(path, /^M 1072 192 L 1076 192 Q 1086 192 1086 202 L 1086 284\.5 Q 1086 294\.5 1076 294\.5 M 1076 294\.5 Q 1086 294\.5 1086 304\.5 L 1086 387 Q 1086 397 1076 397 L 1072 397$/);
 });
 
 test('core calculations stay under the 200 ms target', () => {

@@ -507,10 +507,11 @@ export function getBoardConnectorPath(edgeOrSource, maybeTarget) {
   const distanceX = endX - startX;
 
   if (type === 'corequisite' && sameColumn) {
-    const laneX = source.x - 22;
+    const laneX = source.x + source.width + 14;
     const midY = startY + ((endY - startY) / 2);
+    const entry = 10;
 
-    return `M ${source.x} ${startY} C ${laneX} ${startY}, ${laneX} ${midY}, ${laneX} ${midY} S ${laneX} ${endY}, ${target.x} ${endY}`;
+    return `M ${source.x + source.width} ${startY} L ${laneX - entry} ${startY} Q ${laneX} ${startY} ${laneX} ${startY + entry} L ${laneX} ${midY - entry} Q ${laneX} ${midY} ${laneX - entry} ${midY} M ${laneX - entry} ${midY} Q ${laneX} ${midY} ${laneX} ${midY + entry} L ${laneX} ${endY - entry} Q ${laneX} ${endY} ${laneX - entry} ${endY} L ${target.x + target.width} ${endY}`;
   }
 
   if (laneCount <= 1) {
