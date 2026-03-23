@@ -93,6 +93,223 @@ function normalizeReferenceIds(value) {
   return uniqueList(normalizeList(value).map((item) => normalizeSubjectId(item)).filter(Boolean));
 }
 
+function stripAccents(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeLooseText(value) {
+  return stripAccents(value)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractReferenceCodesFromText(value) {
+  const matches = String(value || '').toUpperCase().match(/\b[A-Z]{2,}\s*[-.]?\s*\d{2,}[A-Z0-9-]*\b/g) || [];
+  return uniqueList(matches.map((item) => normalizeSubjectId(item)).filter(Boolean));
+}
+
+function extractSemesterNumber(line) {
+  const normalized = normalizeLooseText(line);
+  const match = normalized.match(/\b(\d{1,2})\s*(?:o|º|°)?\s*(?:semestre|periodo|periodo letivo|modulo|fase|bloco)\b/);
+
+  if (match) {
+    return Number(match[1]);
+  }
+
+  return null;
+}
+
+function isLikelySubjectCode(value) {
+  return /^(?:[A-Z]{2,}[-.]?\d{2,}[A-Z0-9-]*|\d{5,}[A-Z0-9-]*)$/.test(normalizeSubjectId(value));
+}
+
+function cleanupSubjectName(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(?:ch|carga horaria|creditos?)\b.*$/i, '')
+    .replace(/\b(?:pre[- ]?requisitos?|pre[- ]?requisito|co[- ]?requisitos?|co[- ]?requisito|correquisitos?|correquisito)\b.*$/i, '')
+    .replace(/^[\-:|]+/, '')
+    .trim();
+}
+
+function extractSubjectFromTableLine(line, semester) {
+  if (!line.includes('|')) {
+    return null;
+  }
+
+  const cells = line
+    .split('|')
+    .map((cell) => cell.trim());
+
+  if (cells[0] === '') {
+    cells.shift();
+  }
+
+  if (cells[cells.length - 1] === '') {
+    cells.pop();
+  }
+
+  if (cells.every((cell) => /^:?-{2,}:?$/.test(cell) || cell === '')) {
+    return null;
+  }
+
+  if (cells.length < 2) {
+    return null;
+  }
+
+  let subjectSemester = semester;
+  let code = '';
+  let name = '';
+  let prerequisites = [];
+  let corequisites = [];
+  let trail = 'Base';
+
+  if (cells.length >= 5 && isLikelySubjectCode(cells[1])) {
+    return {
+      id: normalizeSubjectId(cells[1]),
+      name: cleanupSubjectName(cells[2]),
+      semester: Math.max(1, Number(extractSemesterNumber(cells[0]) || semester || 1)),
+      trail: 'Base',
+      prerequisites: extractReferenceCodesFromText(cells[3]),
+      corequisites: extractReferenceCodesFromText(cells[4]),
+    };
+  }
+
+  for (let index = 0; index < cells.length; index += 1) {
+    const cell = cells[index];
+    const semesterFromCell = extractSemesterNumber(cell);
+    if (semesterFromCell) {
+      subjectSemester = semesterFromCell;
+      continue;
+    }
+
+    if (!code && isLikelySubjectCode(cell)) {
+      code = normalizeSubjectId(cell);
+      name = cleanupSubjectName(cells[index + 1] || '');
+      continue;
+    }
+
+    const normalizedCell = normalizeLooseText(cell);
+
+    if (normalizedCell.includes('pre') || normalizedCell.includes('depend')) {
+      prerequisites = extractReferenceCodesFromText(cell);
+      continue;
+    }
+
+    if (normalizedCell.includes('co') || normalizedCell.includes('corre')) {
+      corequisites = extractReferenceCodesFromText(cell);
+      continue;
+    }
+
+    if (normalizedCell.includes('trilha') || normalizedCell.includes('eixo') || normalizedCell.includes('nucleo')) {
+      trail = cell;
+    }
+  }
+
+  if (!code || !name) {
+    return null;
+  }
+
+  return {
+    id: code,
+    name,
+    semester: Math.max(1, Number(subjectSemester || 1)),
+    trail: cleanupSubjectName(trail) || 'Base',
+    prerequisites,
+    corequisites,
+  };
+}
+
+function extractSubjectFromPlainLine(line, semester) {
+  const cleaned = String(line || '')
+    .replace(/^[-*•]+\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const match = cleaned.match(/^([A-Z]{2,}[-.]?\d{2,}[A-Z0-9-]*|\d{5,}[A-Z0-9-]*)\s+(.+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const code = normalizeSubjectId(match[1]);
+  const remainder = match[2];
+  const prerequisites = extractReferenceCodesFromText(remainder.match(/\b(?:pre[- ]?requisitos?|pre[- ]?requisito|depende de)\b(.*)$/i)?.[1] || '');
+  const corequisites = extractReferenceCodesFromText(remainder.match(/\b(?:co[- ]?requisitos?|co[- ]?requisito|correquisitos?|correquisito)\b(.*)$/i)?.[1] || '');
+  const trailMatch = remainder.match(/\b(?:trilha|eixo|nucleo)\s*[:\-]?\s*([A-Za-zÀ-ÿ ]+)/i);
+  const name = cleanupSubjectName(remainder);
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    id: code,
+    name,
+    semester: Math.max(1, Number(semester || 1)),
+    trail: cleanupSubjectName(trailMatch?.[1] || 'Base') || 'Base',
+    prerequisites,
+    corequisites,
+  };
+}
+
+function tryParseHeuristicCurriculum(sourceText, basePayload = {}, { fileName = '' } = {}) {
+  const lines = String(sourceText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  let currentSemester = 1;
+  const subjects = [];
+
+  for (const line of lines) {
+    const subject = extractSubjectFromTableLine(line, currentSemester)
+      || extractSubjectFromPlainLine(line, currentSemester);
+
+    if (subject) {
+      currentSemester = subject.semester || currentSemester;
+      subjects.push(subject);
+      continue;
+    }
+
+    const semester = extractSemesterNumber(line);
+    if (semester) {
+      currentSemester = semester;
+    }
+  }
+
+  const uniqueSubjects = [];
+  const seenIds = new Set();
+
+  for (const subject of subjects) {
+    if (seenIds.has(subject.id)) {
+      continue;
+    }
+
+    seenIds.add(subject.id);
+    uniqueSubjects.push(subject);
+  }
+
+  if (uniqueSubjects.length === 0) {
+    return null;
+  }
+
+  return {
+    ...basePayload,
+    code: basePayload.code || inferBaseCode(basePayload, fileName || basePayload.name || 'Grade importada'),
+    name: basePayload.name || fileName || 'Grade importada',
+    trailLabels: normalizeList(basePayload.trailLabels),
+    subjects: uniqueSubjects,
+  };
+}
+
 function sanitizeSubject(subject, index) {
   return {
     id: normalizeSubjectId(subject.id, `SUBJ${index + 1}`),
@@ -608,10 +825,27 @@ async function parseCurriculumSource(
     sourceText: aiSourceText,
   });
 
-  return normalizeCurriculum(aiPayload, {
-    fileName,
-    sourceText: aiSourceText,
-  });
+  try {
+    return normalizeCurriculum(aiPayload, {
+      fileName,
+      sourceText: aiSourceText,
+    });
+  } catch (error) {
+    if (error?.message !== 'Nenhuma disciplina valida foi encontrada na grade enviada.') {
+      throw error;
+    }
+
+    const heuristicPayload = tryParseHeuristicCurriculum(aiSourceText, aiPayload, { fileName });
+
+    if (!heuristicPayload) {
+      throw error;
+    }
+
+    return normalizeCurriculum(heuristicPayload, {
+      fileName,
+      sourceText: aiSourceText,
+    });
+  }
 }
 
 module.exports = {

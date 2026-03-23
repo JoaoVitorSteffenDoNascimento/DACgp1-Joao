@@ -100,4 +100,101 @@ describe('curriculum import service', () => {
     expect(curriculum.academicYear).toBe(2023)
     expect(curriculum.subjects[1].prerequisites).toEqual(['SI101'])
   })
+
+  it('usa fallback heuristico quando a Mistral nao retorna subjects validos', async () => {
+    const mistralClient = {
+      ocrProcess: vi.fn().mockResolvedValue({
+        pages: [
+          {
+            markdown: [
+              '# Ciencia da Computacao 2021',
+              '1o Semestre',
+              'CC101 Algoritmos I',
+              'CC102 Logica Matematica',
+              '2o Semestre',
+              'CC201 Estruturas de Dados Pre-requisito: CC101',
+              'CC202 Arquitetura de Computadores Correquisito: CC201',
+            ].join('\n'),
+          },
+        ],
+      }),
+      chatComplete: vi.fn().mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                code: 'CC',
+                name: 'Ciencia da Computacao 2021',
+                academicYear: 2021,
+                trailLabels: [],
+                subjects: [],
+              }),
+            },
+          },
+        ],
+      }),
+    }
+
+    const curriculum = await parseCurriculumSource(
+      {
+        fileData: 'data:application/pdf;base64,JVBERi0x',
+        fileName: 'cc-2021.pdf',
+        mimeType: 'application/pdf',
+        mistralApiKey: 'test-key',
+      },
+      { mistralClient },
+    )
+
+    expect(curriculum.name).toBe('Ciencia da Computacao')
+    expect(curriculum.subjects).toHaveLength(4)
+    expect(curriculum.subjects.find((subject) => subject.id === 'CC201')?.prerequisites).toEqual(['CC101'])
+    expect(curriculum.subjects.find((subject) => subject.id === 'CC202')?.corequisites).toEqual(['CC201'])
+  })
+
+  it('interpreta linhas de tabela markdown no fallback heuristico', async () => {
+    const mistralClient = {
+      ocrProcess: vi.fn().mockResolvedValue({
+        pages: [
+          {
+            markdown: [
+              '| Semestre | Codigo | Disciplina | Pre-requisito | Correquisito |',
+              '| --- | --- | --- | --- | --- |',
+              '| 1o Semestre | SI101 | Fundamentos de SI |  |  |',
+              '| 2o Semestre | SI201 | Analise de Requisitos | SI101 |  |',
+              '| 2o Semestre | SI202 | Projeto Integrador |  | SI201 |',
+            ].join('\n'),
+          },
+        ],
+      }),
+      chatComplete: vi.fn().mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                code: 'SI',
+                name: 'Sistemas de Informacao',
+                subjects: [],
+                trailLabels: [],
+              }),
+            },
+          },
+        ],
+      }),
+    }
+
+    const curriculum = await parseCurriculumSource(
+      {
+        fileData: 'data:application/pdf;base64,JVBERi0x',
+        fileName: 'si.pdf',
+        mimeType: 'application/pdf',
+        mistralApiKey: 'test-key',
+      },
+      { mistralClient },
+    )
+
+    expect(curriculum.subjects).toHaveLength(3)
+    expect(curriculum.subjects.find((subject) => subject.id === 'SI201')?.semester).toBe(2)
+    expect(curriculum.subjects.find((subject) => subject.id === 'SI201')?.prerequisites).toEqual(['SI101'])
+    expect(curriculum.subjects.find((subject) => subject.id === 'SI202')?.corequisites).toEqual(['SI201'])
+  })
 })
