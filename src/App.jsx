@@ -31,7 +31,7 @@ let boardPagePreloadPromise;
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const API_LOCAL_FALLBACK_URL = 'http://localhost:3001/api';
-const API_REMOTE_FALLBACK_URL = import.meta.env.VITE_API_REMOTE_FALLBACK_URL || 'https://dacgp1.onrender.com/api';
+const API_REMOTE_FALLBACK_URL = import.meta.env.VITE_API_REMOTE_FALLBACK_URL || 'https://dacgp1-joao.onrender.com/api';
 const TOKEN_STORAGE_KEY = 'coursemapper_token';
 const THEME_STORAGE_KEY = 'coursemapper_theme';
 

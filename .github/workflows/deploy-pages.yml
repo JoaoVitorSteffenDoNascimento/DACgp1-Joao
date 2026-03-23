@@ -33,7 +33,7 @@ jobs:
 
       - name: Build frontend
         env:
-          VITE_API_BASE_URL: https://dacgp1.onrender.com/api
+          VITE_API_BASE_URL: https://dacgp1-joao.onrender.com/api
           VITE_BASE_PATH: /DACgp1-Joao/
         run: npm run build
 

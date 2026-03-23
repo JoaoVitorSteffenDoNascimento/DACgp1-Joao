@@ -33,7 +33,7 @@ function assertSecureRuntimeConfig(config) {
   }
 
   if (!Array.isArray(config.allowedOrigins) || config.allowedOrigins.length === 0) {
-    throw new Error('Em producao, configure ALLOWED_ORIGINS com os domínios autorizados do frontend.');
+    throw new Error('Em producao, configure ALLOWED_ORIGINS com os dominios autorizados do frontend.');
   }
 }
 

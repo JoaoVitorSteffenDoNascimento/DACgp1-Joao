@@ -278,7 +278,7 @@ Recommended environment values:
 APP_ENV=production
 PORT=10000
 STORAGE_DRIVER=postgres
-ALLOWED_ORIGINS=https://YOUR-FRONTEND.vercel.app
+ALLOWED_ORIGINS=https://dacgp1-joao-fqatm7s69.vercel.app
 ```
 
 Required secrets in Render:
@@ -301,7 +301,7 @@ The repository includes:
 Set:
 
 ```bash
-VITE_API_BASE_URL=https://YOUR-BACKEND.onrender.com/api
+VITE_API_BASE_URL=https://dacgp1-joao.onrender.com/api
 ```
 
 ### GitHub Pages
