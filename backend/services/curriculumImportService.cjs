@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const mammoth = require('mammoth');
+const { PDFParse } = require('pdf-parse');
 
 const TEXT_EXTENSIONS = new Set(['txt', 'csv', 'json', 'md']);
 const DOCX_EXTENSIONS = new Set(['docx']);
@@ -107,7 +108,7 @@ function normalizeLooseText(value) {
 }
 
 function extractReferenceCodesFromText(value) {
-  const matches = String(value || '').toUpperCase().match(/\b[A-Z]{2,}\s*[-.]?\s*\d{2,}[A-Z0-9-]*\b/g) || [];
+  const matches = String(value || '').toUpperCase().match(/\b(?:[A-Z]{2,}\s*[-.]?\s*\d{2,}[A-Z0-9-]*|\d{5,}[A-Z0-9-]*)\b/g) || [];
   return uniqueList(matches.map((item) => normalizeSubjectId(item)).filter(Boolean));
 }
 
@@ -132,6 +133,13 @@ function cleanupSubjectName(value) {
     .replace(/\b(?:ch|carga horaria|creditos?)\b.*$/i, '')
     .replace(/\b(?:pre[- ]?requisitos?|pre[- ]?requisito|co[- ]?requisitos?|co[- ]?requisito|correquisitos?|correquisito)\b.*$/i, '')
     .replace(/^[\-:|]+/, '')
+    .trim();
+}
+
+function cleanupTrailName(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/DESENVOLVED\s+OR/gi, 'DESENVOLVEDOR')
     .trim();
 }
 
@@ -310,6 +318,142 @@ function tryParseHeuristicCurriculum(sourceText, basePayload = {}, { fileName = 
   };
 }
 
+function isHoursLine(line) {
+  return /^\d+(?:,\d+)?$/.test(String(line || '').trim());
+}
+
+function isCodeOnlyLine(line) {
+  return /^\d{6,}$/.test(String(line || '').trim());
+}
+
+function isSemesterOnlyLine(line) {
+  return /^\d{1,2}$/.test(String(line || '').trim());
+}
+
+function isFeevaleTerminator(line) {
+  const normalized = normalizeLooseText(line);
+  return normalized.startsWith('atividades complementares')
+    || normalized.startsWith('observacoes')
+    || normalized.includes('optativas');
+}
+
+function parseFeevaleDependencyCodes(lines) {
+  const codes = extractReferenceCodesFromText(lines.join(' '));
+
+  if (codes.length === 0) {
+    return { prerequisites: [], corequisites: [] };
+  }
+
+  return {
+    prerequisites: codes.slice(0, -1),
+    corequisites: codes.slice(-1),
+  };
+}
+
+function tryParseFeevaleCurriculum(sourceText, basePayload = {}) {
+  const lines = String(sourceText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const headerIndex = lines.findIndex((line) => {
+    const normalized = normalizeLooseText(line);
+    return normalized === 'correquisitos'
+      || (
+        normalized.includes('componente curricular')
+        && normalized.includes('requisitos')
+        && normalized.includes('correquisitos')
+      );
+  });
+
+  if (headerIndex === -1) {
+    return null;
+  }
+
+  const mergedRows = [];
+  let currentRow = '';
+
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const normalized = normalizeLooseText(line);
+
+    if (
+      /^--\s*\d+\s+of\s+\d+\s*--$/i.test(line)
+      || normalized === 'ordem /'
+      || normalized.startsWith('semestre ')
+      || normalized === 'codigo componente curricular total requisitos correquisitos'
+    ) {
+      continue;
+    }
+
+    if (isFeevaleTerminator(line)) {
+      break;
+    }
+
+    if (/^\d{1,2}\b/.test(line)) {
+      if (currentRow) {
+        mergedRows.push(currentRow);
+      }
+
+      currentRow = line;
+      continue;
+    }
+
+    if (currentRow) {
+      currentRow = `${currentRow} ${line}`;
+    }
+  }
+
+  if (currentRow) {
+    mergedRows.push(currentRow);
+  }
+
+  const subjects = [];
+
+  for (const row of mergedRows) {
+    const normalizedRow = row.replace(/\t+/g, ' ').replace(/\s+/g, ' ').trim();
+    const match = normalizedRow.match(/^(\d{1,2})\s+(.+?)\s+(\d{6,})\s+(.+?)\s+(\d+(?:,\d+)?)\s*(.*)$/);
+
+    if (!match) {
+      continue;
+    }
+
+    const semester = Number(match[1]);
+    const trail = cleanupTrailName(match[2]);
+    const code = normalizeSubjectId(match[3]);
+    const name = cleanupSubjectName(match[4]);
+    const dependencies = parseFeevaleDependencyCodes([match[6] || '']);
+
+    if (dependencies.prerequisites.length === 0 && dependencies.corequisites.length === 1 && semester > 1) {
+      dependencies.prerequisites = dependencies.corequisites;
+      dependencies.corequisites = [];
+    }
+
+    if (!name) {
+      continue;
+    }
+
+    subjects.push({
+      id: code,
+      name,
+      semester,
+      trail: trail || 'Base',
+      prerequisites: dependencies.prerequisites,
+      corequisites: dependencies.corequisites,
+    });
+  }
+
+  if (subjects.length === 0) {
+    return null;
+  }
+
+  return {
+    ...basePayload,
+    trailLabels: normalizeList(basePayload.trailLabels),
+    subjects,
+  };
+}
+
 function sanitizeSubject(subject, index) {
   return {
     id: normalizeSubjectId(subject.id, `SUBJ${index + 1}`),
@@ -323,12 +467,18 @@ function sanitizeSubject(subject, index) {
 
 function extractAcademicYear(...values) {
   const yearPattern = /\b(19|20)\d{2}\b/g;
+  const compactYearPattern = /(?:^|[^\d])((?:19|20)\d{2})\d{2}(?!\d)/g;
 
   for (const value of values) {
     const matches = String(value || '').match(yearPattern);
 
     if (matches?.length) {
       return Number(matches[matches.length - 1]);
+    }
+
+    const compactMatches = [...String(value || '').matchAll(compactYearPattern)];
+    if (compactMatches.length > 0) {
+      return Number(compactMatches[compactMatches.length - 1][1]);
     }
   }
 
@@ -370,6 +520,21 @@ function inferCatalogName(parsedCurriculum) {
   ).trim();
 
   return stripAcademicYear(resolvedName) || resolvedName;
+}
+
+function inferCatalogNameFromSourceText(sourceText = '', fallbackName = '') {
+  const lines = String(sourceText || '')
+    .split(/\r?\n/)
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+
+  const preferredLine = lines.find((line) => /\b(bacharelado|licenciatura|tecnologia)\b/i.test(line));
+
+  if (preferredLine) {
+    return stripAcademicYear(preferredLine.replace(/\.(pdf|docx|txt)$/i, '')) || fallbackName;
+  }
+
+  return inferCatalogName({ name: fallbackName });
 }
 
 function inferVersionLabel(parsedCurriculum, academicYear) {
@@ -441,6 +606,18 @@ async function extractDocxText(fileData) {
   const { buffer } = decodeFileData(fileData);
   const result = await mammoth.extractRawText({ buffer });
   return String(result.value || '').trim();
+}
+
+async function extractPdfText(fileData) {
+  const { buffer } = decodeFileData(fileData);
+  const parser = new PDFParse({ data: buffer });
+
+  try {
+    const result = await parser.getText();
+    return String(result.text || '').trim();
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
 }
 
 function buildCurriculumPrompt(fileName) {
@@ -766,8 +943,9 @@ async function parseCurriculumSource(
   },
   {
     docxTextExtractor = extractDocxText,
+    pdfTextExtractor = extractPdfText,
     mistralClient = null,
-    pdfTextExtractor = extractPdfTextWithMistral,
+    pdfOcrTextExtractor = extractPdfTextWithMistral,
   } = {},
 ) {
   const extension = getFileExtension(fileName, mimeType);
@@ -793,6 +971,29 @@ async function parseCurriculumSource(
     }
   }
 
+  if (!normalizedSource && fileData && PDF_EXTENSIONS.has(extension)) {
+    normalizedSource = await pdfTextExtractor(fileData).catch(() => '');
+
+    if (normalizedSource) {
+      const feevalePayload = tryParseFeevaleCurriculum(normalizedSource, {
+        name: inferCatalogNameFromSourceText(normalizedSource, fileName),
+        academicYear: extractAcademicYear(fileName, normalizedSource.slice(0, 4000)),
+      });
+
+      if (feevalePayload) {
+        return normalizeCurriculum(feevalePayload, { fileName, sourceText: normalizedSource });
+      }
+
+      const heuristicPayload = tryParseHeuristicCurriculum(normalizedSource, {
+        name: inferCatalogNameFromSourceText(normalizedSource, fileName),
+      }, { fileName });
+
+      if (heuristicPayload) {
+        return normalizeCurriculum(heuristicPayload, { fileName, sourceText: normalizedSource });
+      }
+    }
+  }
+
   if (!mistralApiKey) {
     throw new Error('Configure MISTRAL_API_KEY no backend para importar PDF, DOCX ou grades nao estruturadas.');
   }
@@ -807,7 +1008,7 @@ async function parseCurriculumSource(
     }
 
     if (!aiSourceText && PDF_EXTENSIONS.has(extension)) {
-      aiSourceText = await pdfTextExtractor({
+      aiSourceText = await pdfOcrTextExtractor({
         fileData: decodedFile.dataUrl,
         fileName,
         mistralApiKey,
@@ -833,6 +1034,15 @@ async function parseCurriculumSource(
   } catch (error) {
     if (error?.message !== 'Nenhuma disciplina valida foi encontrada na grade enviada.') {
       throw error;
+    }
+
+    const feevalePayload = tryParseFeevaleCurriculum(aiSourceText, aiPayload);
+
+    if (feevalePayload) {
+      return normalizeCurriculum(feevalePayload, {
+        fileName,
+        sourceText: aiSourceText,
+      });
     }
 
     const heuristicPayload = tryParseHeuristicCurriculum(aiSourceText, aiPayload, { fileName });

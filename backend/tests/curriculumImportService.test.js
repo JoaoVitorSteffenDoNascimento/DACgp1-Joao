@@ -197,4 +197,40 @@ describe('curriculum import service', () => {
     expect(curriculum.subjects.find((subject) => subject.id === 'SI201')?.prerequisites).toEqual(['SI101'])
     expect(curriculum.subjects.find((subject) => subject.id === 'SI202')?.corequisites).toEqual(['SI201'])
   })
+
+  it('extrai grade Feevale diretamente de PDF com texto embutido', async () => {
+    const pdfTextExtractor = vi.fn().mockResolvedValue([
+      'Instituto de Ciencias Criativas e Tecnologicas',
+      'Curriculo Atual - 202101 - NOTURNO',
+      'Renovacao de Reconhecimento por Portaria n. 154 de 21/06/2023',
+      'CIENCIA DA COMPUTACAO - BACHARELADO',
+      'SEMESTRE \tPERIODO \tCODIGO \tCOMPONENTE CURRICULAR \tTOTAL \tREQUISITOS \tCORREQUISITOS',
+      '1 \tDESENVOLVED',
+      'OR - I \t383480 ALGORITMOS \t100,0 \t383490 -',
+      '1 \tDESENVOLVED',
+      'OR - I \t383490 ARQUITETURA DE COMPUTADORES \t80,0 \t383480 -',
+      '2 \tDESENVOLVED',
+      'OR - II \t383520 PROGRAMACAO I \t80,0 \t383480 - \t383530 -',
+      '2 \tDESENVOLVED',
+      'OR - II \t383530 ESTRUTURA DE DADOS I \t80,0 \t383480 - \t383520 -',
+      'ATIVIDADES COMPLEMENTARES - 200h',
+    ].join('\n'))
+
+    const curriculum = await parseCurriculumSource(
+      {
+        fileData: 'data:application/pdf;base64,JVBERi0x',
+        fileName: 'CIENCIAS_DA_COMPUTACAO_-_BACHARELADO_-_202101-_NOTURNO.pdf',
+        mimeType: 'application/pdf',
+      },
+      { pdfTextExtractor },
+    )
+
+    expect(pdfTextExtractor).toHaveBeenCalledTimes(1)
+    expect(curriculum.name).toBe('CIENCIA DA COMPUTACAO BACHARELADO')
+    expect(curriculum.academicYear).toBe(2021)
+    expect(curriculum.subjects).toHaveLength(4)
+    expect(curriculum.subjects.find((subject) => subject.id === '383480')?.corequisites).toEqual(['383490'])
+    expect(curriculum.subjects.find((subject) => subject.id === '383520')?.prerequisites).toEqual(['383480'])
+    expect(curriculum.subjects.find((subject) => subject.id === '383520')?.corequisites).toEqual(['383530'])
+  })
 })
