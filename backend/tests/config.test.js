@@ -16,6 +16,13 @@ const originalEnv = {
   MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
   MISTRAL_MODEL: process.env.MISTRAL_MODEL,
   MISTRAL_OCR_MODEL: process.env.MISTRAL_OCR_MODEL,
+  TRUST_PROXY: process.env.TRUST_PROXY,
+  AUTH_MAX_FAILED_ATTEMPTS: process.env.AUTH_MAX_FAILED_ATTEMPTS,
+  AUTH_ATTEMPT_WINDOW_MS: process.env.AUTH_ATTEMPT_WINDOW_MS,
+  AUTH_LOCKOUT_MS: process.env.AUTH_LOCKOUT_MS,
+  MAX_PROFILE_AVATAR_DATA_URI_LENGTH: process.env.MAX_PROFILE_AVATAR_DATA_URI_LENGTH,
+  MAX_IMPORT_TEXT_LENGTH: process.env.MAX_IMPORT_TEXT_LENGTH,
+  MAX_IMPORT_FILE_DATA_LENGTH: process.env.MAX_IMPORT_FILE_DATA_LENGTH,
 }
 
 function loadConfig() {
@@ -44,6 +51,13 @@ describe('config', () => {
     process.env.MISTRAL_API_KEY = 'mistral-key'
     process.env.MISTRAL_MODEL = 'mistral-small-latest'
     process.env.MISTRAL_OCR_MODEL = 'mistral-ocr-latest'
+    process.env.TRUST_PROXY = 'true'
+    process.env.AUTH_MAX_FAILED_ATTEMPTS = '7'
+    process.env.AUTH_ATTEMPT_WINDOW_MS = '30000'
+    process.env.AUTH_LOCKOUT_MS = '60000'
+    process.env.MAX_PROFILE_AVATAR_DATA_URI_LENGTH = '2048'
+    process.env.MAX_IMPORT_TEXT_LENGTH = '4096'
+    process.env.MAX_IMPORT_FILE_DATA_LENGTH = '8192'
 
     const config = loadConfig()
 
@@ -57,5 +71,12 @@ describe('config', () => {
     expect(config.mistralApiKey).toBe('mistral-key')
     expect(config.mistralModel).toBe('mistral-small-latest')
     expect(config.mistralOcrModel).toBe('mistral-ocr-latest')
+    expect(config.trustProxy).toBe(true)
+    expect(config.authMaxFailedAttempts).toBe(7)
+    expect(config.authAttemptWindowMs).toBe(30000)
+    expect(config.authLockoutMs).toBe(60000)
+    expect(config.maxProfileAvatarDataUriLength).toBe(2048)
+    expect(config.maxImportTextLength).toBe(4096)
+    expect(config.maxImportFileDataLength).toBe(8192)
   })
 })

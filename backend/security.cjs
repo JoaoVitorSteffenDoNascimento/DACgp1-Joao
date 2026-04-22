@@ -122,14 +122,37 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return `${salt}:${derivedKey}`;
 }
 
+function isHexString(value) {
+  if (value.length === 0 || value.length % 2 !== 0) {
+    return false;
+  }
+
+  for (let index = 0; index < value.length; index += 1) {
+    const charCode = value.charCodeAt(index);
+    const isDigit = charCode >= 48 && charCode <= 57;
+    const isUpperHex = charCode >= 65 && charCode <= 70;
+    const isLowerHex = charCode >= 97 && charCode <= 102;
+
+    if (!isDigit && !isUpperHex && !isLowerHex) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function verifyPassword(password, storedHash) {
   const [salt, originalHash] = String(storedHash || '').split(':');
 
-  if (!salt || !originalHash) {
+  if (!salt || !originalHash || !isHexString(originalHash)) {
     return false;
   }
 
   const derivedKey = crypto.scryptSync(String(password || ''), salt, 64).toString('hex');
+
+  if (originalHash.length !== derivedKey.length) {
+    return false;
+  }
 
   return crypto.timingSafeEqual(
     Buffer.from(originalHash, 'hex'),

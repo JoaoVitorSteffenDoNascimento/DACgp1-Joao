@@ -144,6 +144,99 @@ describe('backend app routes', () => {
     expect(login.body.user.name).toBe('Ana Segura')
   })
 
+
+  it('mitiga brute force bloqueando tentativas repetidas de login', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          registration: '2026000001',
+          password: 'SenhaErrada1!',
+        })
+
+      expect(response.status).toBe(401)
+    }
+
+    const blocked = await request(app)
+      .post('/api/auth/login')
+      .send({
+        registration: '2026000001',
+        password: 'SenhaErrada1!',
+      })
+
+    expect(blocked.status).toBe(429)
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0)
+  })
+
+  it('bloqueia payloads grandes em rotas sensiveis', async () => {
+    const largeAvatar = `data:image/png;base64,${'a'.repeat(2 * 1024 * 1024 + 10)}`
+
+    const profile = await request(app)
+      .patch('/api/profile')
+      .set('Authorization', 'Bearer token-1')
+      .send({
+        name: 'Lucas Seguro',
+        username: 'lucasseguro',
+        email: 'novo@universidade.edu.br',
+        avatarUrl: largeAvatar,
+        theme: 'dark',
+      })
+
+    expect(profile.status).toBe(400)
+    expect(profile.body.error).toContain('muito grande')
+
+    const importPayload = await request(app)
+      .post('/api/curriculums/import')
+      .set('Authorization', 'Bearer token-1')
+      .send({
+        fileName: 'grade.json',
+        sourceText: 'x'.repeat(4 * 1024 * 1024 + 10),
+      })
+
+    expect(importPayload.status).toBe(413)
+  })
+
+
+  it('permite customizar limites de seguranca via configuracao', async () => {
+    app = createApp({
+      curriculumRepository,
+      userRepository: repo,
+      config: {
+        storageDriver: 'file',
+        mistralApiKey: '',
+        authMaxFailedAttempts: 2,
+        authAttemptWindowMs: 60_000,
+        authLockoutMs: 60_000,
+      },
+      emailDomainValidator: async () => true,
+    })
+
+    const first = await request(app)
+      .post('/api/auth/login')
+      .send({
+        registration: '2026000001',
+        password: 'SenhaErrada1!',
+      })
+
+    const second = await request(app)
+      .post('/api/auth/login')
+      .send({
+        registration: '2026000001',
+        password: 'SenhaErrada1!',
+      })
+
+    const blocked = await request(app)
+      .post('/api/auth/login')
+      .send({
+        registration: '2026000001',
+        password: 'SenhaErrada1!',
+      })
+
+    expect(first.status).toBe(401)
+    expect(second.status).toBe(401)
+    expect(blocked.status).toBe(429)
+  })
+
   it('retorna erro para login invalido e sessao ausente', async () => {
     const login = await request(app)
       .post('/api/auth/login')

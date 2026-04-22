@@ -44,6 +44,36 @@ function sanitizeUser(user) {
   };
 }
 
+const DEFAULT_SECURITY_LIMITS = {
+  authMaxFailedAttempts: 5,
+  authAttemptWindowMs: 10 * 60 * 1000,
+  authLockoutMs: 15 * 60 * 1000,
+  maxProfileAvatarDataUriLength: 2 * 1024 * 1024,
+  maxImportTextLength: 4 * 1024 * 1024,
+  maxImportFileDataLength: 8 * 1024 * 1024,
+};
+
+function getPositiveInt(value, fallbackValue) {
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+
+  return parsed;
+}
+
+function getSecurityLimits(config) {
+  return {
+    authMaxFailedAttempts: getPositiveInt(config.authMaxFailedAttempts, DEFAULT_SECURITY_LIMITS.authMaxFailedAttempts),
+    authAttemptWindowMs: getPositiveInt(config.authAttemptWindowMs, DEFAULT_SECURITY_LIMITS.authAttemptWindowMs),
+    authLockoutMs: getPositiveInt(config.authLockoutMs, DEFAULT_SECURITY_LIMITS.authLockoutMs),
+    maxProfileAvatarDataUriLength: getPositiveInt(config.maxProfileAvatarDataUriLength, DEFAULT_SECURITY_LIMITS.maxProfileAvatarDataUriLength),
+    maxImportTextLength: getPositiveInt(config.maxImportTextLength, DEFAULT_SECURITY_LIMITS.maxImportTextLength),
+    maxImportFileDataLength: getPositiveInt(config.maxImportFileDataLength, DEFAULT_SECURITY_LIMITS.maxImportFileDataLength),
+  };
+}
+
 function getTokenFromRequest(req) {
   const authorization = req.headers.authorization || '';
 
@@ -65,6 +95,8 @@ function createApp({
   const frontendDistDir = path.resolve(__dirname, '..', 'dist');
   const frontendIndexPath = path.join(frontendDistDir, 'index.html');
   const hasFrontendBuild = fs.existsSync(frontendIndexPath);
+  const securityLimits = getSecurityLimits(config);
+  const loginAttemptStore = new Map();
 
   app.disable('x-powered-by');
   app.use((req, res, next) => applySecurityHeaders(req, res, next, { isProduction: config.isProduction }));
@@ -98,6 +130,68 @@ function createApp({
     }
 
     return userRepository.findByToken(token);
+  }
+
+  function getClientSource(req) {
+    if (config.trustProxy) {
+      const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+      if (forwardedFor) {
+        return forwardedFor;
+      }
+    }
+
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+  }
+
+  function getLoginAttemptKey(req, registration) {
+    const normalizedRegistration = String(registration || '').trim() || 'anon';
+    return `${normalizedRegistration}|${getClientSource(req)}`;
+  }
+
+  function pruneLoginAttemptStore(now) {
+    for (const [entryKey, entryState] of loginAttemptStore.entries()) {
+      if (entryState.windowStartedAt + securityLimits.authAttemptWindowMs < now) {
+        loginAttemptStore.delete(entryKey);
+      }
+    }
+  }
+
+  function getLoginThrottleState(req, registration, now = Date.now()) {
+    const key = getLoginAttemptKey(req, registration);
+    const existing = loginAttemptStore.get(key);
+
+    if (!existing) {
+      return { key, failedAttempts: 0, blockedUntil: 0, windowStartedAt: now };
+    }
+
+    if (existing.windowStartedAt + securityLimits.authAttemptWindowMs < now) {
+      loginAttemptStore.delete(key);
+      return { key, failedAttempts: 0, blockedUntil: 0, windowStartedAt: now };
+    }
+
+    return { key, ...existing };
+  }
+
+  function registerFailedLoginAttempt(req, registration) {
+    const now = Date.now();
+    const { key, failedAttempts, windowStartedAt } = getLoginThrottleState(req, registration, now);
+    const updatedAttempts = failedAttempts + 1;
+
+    loginAttemptStore.set(key, {
+      failedAttempts: updatedAttempts,
+      windowStartedAt,
+      blockedUntil: updatedAttempts >= securityLimits.authMaxFailedAttempts
+        ? now + securityLimits.authLockoutMs
+        : 0,
+    });
+
+    if (loginAttemptStore.size > 3000) {
+      pruneLoginAttemptStore(now);
+    }
+  }
+
+  function clearFailedLoginAttempts(req, registration) {
+    loginAttemptStore.delete(getLoginAttemptKey(req, registration));
   }
 
   async function validateRegistrationInput(body) {
@@ -159,6 +253,10 @@ function createApp({
       return 'Use o upload de imagem para definir a foto de perfil.';
     }
 
+    if (nextAvatarUrl.length > securityLimits.maxProfileAvatarDataUriLength) {
+      return 'A imagem de perfil e muito grande.';
+    }
+
     const existingEmail = await userRepository.findByEmail(nextEmail);
     if (existingEmail && existingEmail.id !== user.id) {
       return 'E-mail ja cadastrado.';
@@ -199,6 +297,10 @@ function createApp({
 
     if (!sourceText.trim() && !fileData) {
       return res.status(400).json({ error: 'Envie o conteudo ou o arquivo da grade curricular.' });
+    }
+
+    if (sourceText.length > securityLimits.maxImportTextLength || fileData.length > securityLimits.maxImportFileDataLength) {
+      return res.status(413).json({ error: 'Arquivo ou conteudo muito grande para importacao.' });
     }
 
     try {
@@ -279,11 +381,23 @@ function createApp({
     }
 
     const normalizedRegistration = String(registration).trim();
+    const now = Date.now();
+    const throttleState = getLoginThrottleState(req, normalizedRegistration, now);
+
+    if (throttleState.blockedUntil > now) {
+      const retryAfterSeconds = Math.ceil((throttleState.blockedUntil - now) / 1000);
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({ error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' });
+    }
+
     const user = await userRepository.findByRegistration(normalizedRegistration);
 
     if (!user || !verifyPassword(String(password), user.passwordHash)) {
+      registerFailedLoginAttempt(req, normalizedRegistration);
       return res.status(401).json({ error: 'Credenciais invalidas.' });
     }
+
+    clearFailedLoginAttempts(req, normalizedRegistration);
 
     const sessionToken = crypto.randomUUID();
     const updatedUser = await userRepository.updateById(user.id, {

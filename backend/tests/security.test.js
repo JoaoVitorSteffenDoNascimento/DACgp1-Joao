@@ -40,6 +40,13 @@ describe('security helpers', () => {
     expect(verifyPassword('Senhaerrada1!', hash)).toBe(false)
   })
 
+
+  it('retorna falso para hash malformado sem quebrar autenticacao', () => {
+    expect(verifyPassword('Senhaforte1!', 'salt:naohexadecimal')).toBe(false)
+    expect(verifyPassword('Senhaforte1!', 'salt:abc')).toBe(false)
+    expect(verifyPassword('Senhaforte1!', 'salt:abcd')).toBe(false)
+  })
+
   it('valida configuracao segura em producao', () => {
     expect(() => assertSecureRuntimeConfig({
       isProduction: true,
