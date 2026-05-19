@@ -12,6 +12,11 @@ const PASSWORD_MISSING_UPPERCASE_MESSAGE = 'A senha deve incluir pelo menos uma 
 const PASSWORD_MISSING_NUMBER_MESSAGE = 'A senha deve incluir pelo menos um numero.';
 const PASSWORD_MISSING_SPECIAL_MESSAGE = 'A senha deve incluir pelo menos um caractere especial.';
 const SECURE_THEMES = new Set(['brand', 'dark', 'white']);
+const PUBLIC_FRONTEND_ORIGINS = new Set([
+  'https://dacgp1-joao.vercel.app',
+  'https://dacgp1-joao.onrender.com',
+  'https://joaovitorsteffendonascimento.github.io',
+]);
 let lastEmailInput = null;
 let lastEmailOutput = '';
 let lastValidEmailInput = null;
@@ -42,7 +47,7 @@ function isAllowedOrigin(origin, allowedOrigins = []) {
     return true;
   }
 
-  return allowedOrigins.includes(origin);
+  return allowedOrigins.includes(origin) || PUBLIC_FRONTEND_ORIGINS.has(origin);
 }
 
 function createCorsOriginValidator(config) {
@@ -385,6 +390,7 @@ async function hasResolvableEmailDomain(email) {
 
 module.exports = {
   DNS_VALIDATION_TIMEOUT_MS,
+  PUBLIC_FRONTEND_ORIGINS,
   SECURE_THEMES,
   applySecurityHeaders,
   assertSecureRuntimeConfig,

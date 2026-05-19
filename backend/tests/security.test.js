@@ -64,9 +64,10 @@ describe('security helpers', () => {
   })
 
   it('limita origens permitidas no cors', async () => {
-    expect(isAllowedOrigin('', ['https://app.example.com'])).toBe(true)
-    expect(isAllowedOrigin('https://app.example.com', ['https://app.example.com'])).toBe(true)
-    expect(isAllowedOrigin('https://evil.example.com', ['https://app.example.com'])).toBe(false)
+  expect(isAllowedOrigin('', ['https://app.example.com'])).toBe(true)
+  expect(isAllowedOrigin('https://app.example.com', ['https://app.example.com'])).toBe(true)
+  expect(isAllowedOrigin('https://dacgp1-joao.vercel.app', ['https://app.example.com'])).toBe(true)
+  expect(isAllowedOrigin('https://evil.example.com', ['https://app.example.com'])).toBe(false)
 
     const validator = createCorsOriginValidator({
       isProduction: true,

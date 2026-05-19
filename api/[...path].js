@@ -1,8 +1,10 @@
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
+  'accept-encoding',
   'content-length',
   'host',
   'keep-alive',
+  'origin',
   'proxy-authenticate',
   'proxy-authorization',
   'te',
@@ -16,12 +18,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   'x-vercel-id',
 ]);
 
-function getTargetUrl(req) {
-  const baseUrl = process.env.RENDER_API_BASE_URL;
+const DEFAULT_RENDER_API_BASE_URL = 'https://dacgp1-joao.onrender.com/api';
+const MAX_PROXY_BODY_BYTES = 20 * 1024 * 1024;
 
-  if (!baseUrl) {
-    throw new Error('RENDER_API_BASE_URL nao configurada.');
-  }
+function getTargetUrl(req) {
+  const baseUrl = process.env.RENDER_API_BASE_URL || DEFAULT_RENDER_API_BASE_URL;
 
   const pathSegments = Array.isArray(req.query.path)
     ? req.query.path
@@ -69,7 +70,27 @@ function getProxyHeaders(req) {
   return headers;
 }
 
-function getRequestBody(req) {
+async function readRawRequestBody(req) {
+  const chunks = [];
+  let totalBytes = 0;
+
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+
+    if (totalBytes > MAX_PROXY_BODY_BYTES) {
+      const error = new Error('O arquivo enviado e grande demais.');
+      error.statusCode = 413;
+      throw error;
+    }
+
+    chunks.push(buffer);
+  }
+
+  return chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+}
+
+async function getRequestBody(req) {
   if (req.method === 'GET' || req.method === 'HEAD') {
     return undefined;
   }
@@ -79,7 +100,7 @@ function getRequestBody(req) {
   }
 
   if (req.body == null) {
-    return undefined;
+    return readRawRequestBody(req);
   }
 
   return JSON.stringify(req.body);
@@ -87,9 +108,7 @@ function getRequestBody(req) {
 
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '20mb',
-    },
+    bodyParser: false,
   },
 };
 
@@ -98,7 +117,7 @@ export default async function handler(req, res) {
     const response = await fetch(getTargetUrl(req), {
       method: req.method,
       headers: getProxyHeaders(req),
-      body: getRequestBody(req),
+      body: await getRequestBody(req),
       redirect: 'manual',
     });
 
@@ -110,11 +129,19 @@ export default async function handler(req, res) {
       }
     });
 
-    const body = Buffer.from(await response.arrayBuffer());
+    const body = await response.text();
     res.send(body);
   } catch (error) {
-    res.status(502).json({
+    res.status(error?.statusCode === 413 ? 413 : 502).json({
       error: error instanceof Error ? error.message : 'Falha ao conectar com o backend remoto.',
     });
   }
 }
+
+export {
+  DEFAULT_RENDER_API_BASE_URL,
+  getProxyHeaders,
+  getRequestBody,
+  getTargetUrl,
+  MAX_PROXY_BODY_BYTES,
+};
